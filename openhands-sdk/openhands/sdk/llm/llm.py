@@ -93,6 +93,7 @@ from openhands.sdk.llm.exceptions import (
 from openhands.sdk.llm.llm_response import LLMResponse
 from openhands.sdk.llm.message import (
     Message,
+    PromptCacheTTL,
 )
 from openhands.sdk.llm.mixins.non_native_fc import NonNativeToolCallingMixin
 from openhands.sdk.llm.options.chat_options import select_chat_options
@@ -534,6 +535,15 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         default=True,
         description="If True, ask for ['reasoning.encrypted_content'] "
         "in Responses API include.",
+        json_schema_extra=field_meta(),
+    )
+    prompt_cache_ttl: PromptCacheTTL = Field(
+        default="5m",
+        description=(
+            "TTL for explicit prompt cache breakpoints. Anthropic supports "
+            "five-minute and one-hour entries. OpenAI models use "
+            "prompt_cache_retention instead."
+        ),
         json_schema_extra=field_meta(),
     )
     # Prompt cache retention is filtered per model features in chat options.
@@ -2687,6 +2697,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                 function_calling_enabled=function_calling_enabled,
                 force_string_serializer=force_string_serializer,
                 send_reasoning_content=send_reasoning_content,
+                prompt_cache_ttl=(self.prompt_cache_ttl if cache_enabled else "5m"),
             )
             for message in messages
         ]

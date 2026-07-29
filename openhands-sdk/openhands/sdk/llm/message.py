@@ -20,6 +20,15 @@ from openhands.sdk.utils.deprecation import handle_deprecated_model_fields
 
 logger = get_logger(__name__)
 
+PromptCacheTTL = Literal["5m", "1h"]
+
+
+def _prompt_cache_control(ttl: PromptCacheTTL) -> dict[str, str]:
+    control = {"type": "ephemeral"}
+    if ttl == "1h":
+        control["ttl"] = ttl
+    return control
+
 
 class MessageToolCall(BaseModel):
     """Transport-agnostic tool call representation.
@@ -162,7 +171,10 @@ class BaseContent(BaseModel):
     cache_prompt: bool = False
 
     @abstractmethod
-    def to_llm_dict(self) -> list[dict[str, str | dict[str, str]]]:
+    def to_llm_dict(
+        self,
+        prompt_cache_ttl: PromptCacheTTL = "5m",
+    ) -> list[dict[str, str | dict[str, str]]]:
         """Convert to LLM API format. Always returns a list of dictionaries.
 
         Subclasses should implement this method to return a list of dictionaries,
@@ -190,14 +202,17 @@ class TextContent(BaseContent):
         """Remove deprecated fields for backward compatibility with old events."""
         return handle_deprecated_model_fields(data, cls._DEPRECATED_FIELDS)
 
-    def to_llm_dict(self) -> list[dict[str, str | dict[str, str]]]:
+    def to_llm_dict(
+        self,
+        prompt_cache_ttl: PromptCacheTTL = "5m",
+    ) -> list[dict[str, str | dict[str, str]]]:
         """Convert to LLM API format."""
         data: dict[str, str | dict[str, str]] = {
             "type": self.type,
             "text": self.text,
         }
         if self.cache_prompt:
-            data["cache_control"] = {"type": "ephemeral"}
+            data["cache_control"] = _prompt_cache_control(prompt_cache_ttl)
         return [data]
 
 
@@ -205,13 +220,16 @@ class ImageContent(BaseContent):
     type: Literal["image"] = "image"
     image_urls: list[str]
 
-    def to_llm_dict(self) -> list[dict[str, str | dict[str, str]]]:
+    def to_llm_dict(
+        self,
+        prompt_cache_ttl: PromptCacheTTL = "5m",
+    ) -> list[dict[str, str | dict[str, str]]]:
         """Convert to LLM API format."""
         images: list[dict[str, str | dict[str, str]]] = []
         for url in self.image_urls:
             images.append({"type": "image_url", "image_url": {"url": url}})
         if self.cache_prompt and images:
-            images[-1]["cache_control"] = {"type": "ephemeral"}
+            images[-1]["cache_control"] = _prompt_cache_control(prompt_cache_ttl)
         return images
 
 
@@ -283,6 +301,7 @@ class Message(BaseModel):
         function_calling_enabled: bool,
         force_string_serializer: bool,
         send_reasoning_content: bool,
+        prompt_cache_ttl: PromptCacheTTL = "5m",
     ) -> dict[str, Any]:
         """Serialize message for OpenAI Chat Completions.
 
@@ -292,6 +311,7 @@ class Message(BaseModel):
             function_calling_enabled: Whether native function calling is enabled.
             force_string_serializer: Force string serializer instead of list format.
             send_reasoning_content: Whether to include reasoning_content in output.
+            prompt_cache_ttl: TTL for explicit cache breakpoints.
 
         Chooses the appropriate content serializer and then injects threading keys:
         - Assistant tool call turn: role == "assistant" and self.tool_calls
@@ -300,7 +320,10 @@ class Message(BaseModel):
         if not force_string_serializer and (
             cache_enabled or vision_enabled or function_calling_enabled
         ):
-            message_dict = self._list_serializer(vision_enabled=vision_enabled)
+            message_dict = self._list_serializer(
+                vision_enabled=vision_enabled,
+                prompt_cache_ttl=prompt_cache_ttl,
+            )
         else:
             # some providers, like HF and Groq/llama, don't support a list here, but a
             # single string
@@ -339,7 +362,12 @@ class Message(BaseModel):
         # tool call keys are added in to_chat_dict to centralize behavior
         return message_dict
 
-    def _list_serializer(self, *, vision_enabled: bool) -> dict[str, Any]:
+    def _list_serializer(
+        self,
+        *,
+        vision_enabled: bool,
+        prompt_cache_ttl: PromptCacheTTL = "5m",
+    ) -> dict[str, Any]:
         content: list[dict[str, Any]] = []
         role_tool_with_prompt_caching = False
 
@@ -356,7 +384,7 @@ class Message(BaseModel):
 
         for item in self.content:
             # All content types now return list[dict[str, Any]]
-            item_dicts = item.to_llm_dict()
+            item_dicts = item.to_llm_dict(prompt_cache_ttl=prompt_cache_ttl)
 
             if self.role == "tool" and item_dicts:
                 for d in item_dicts:
@@ -381,7 +409,7 @@ class Message(BaseModel):
 
         message_dict: dict[str, Any] = {"content": content, "role": self.role}
         if role_tool_with_prompt_caching:
-            message_dict["cache_control"] = {"type": "ephemeral"}
+            message_dict["cache_control"] = _prompt_cache_control(prompt_cache_ttl)
 
         if thinking_blocks_dicts:
             message_dict["thinking_blocks"] = thinking_blocks_dicts
