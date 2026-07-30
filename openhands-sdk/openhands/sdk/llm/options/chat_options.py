@@ -78,6 +78,18 @@ def select_chat_options(
         out.pop("top_p", None)
         out.pop("top_k", None)
 
+    if llm.uses_anthropic_compaction():
+        compaction: dict[str, Any] = {
+            "type": "compact_20260112",
+            "trigger": {
+                "type": "input_tokens",
+                "value": llm.anthropic_compact_threshold,
+            },
+        }
+        if llm.anthropic_compaction_instructions:
+            compaction["instructions"] = llm.anthropic_compaction_instructions
+        out.setdefault("context_management", {"edits": [compaction]})
+
     # Tools: if not using native, strip tool_choice so we don't confuse providers
     if not has_tools:
         out.pop("tools", None)

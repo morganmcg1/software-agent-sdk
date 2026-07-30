@@ -26,6 +26,7 @@ from openhands.sdk.io import FileStore, LocalFileStore
 from openhands.sdk.llm import (
     LLM,
     LLM_PROFILE_SCHEMA_VERSION,
+    AnthropicCompactionBlock,
     FallbackStrategy,
     ImageContent,
     LLMProfileStore,
@@ -130,6 +131,7 @@ __all__ = [
     "ConversationStats",
     "RegistryEvent",
     "Message",
+    "AnthropicCompactionBlock",
     "TextContent",
     "ImageContent",
     "ThinkingBlock",

@@ -10,6 +10,7 @@ from openhands.sdk.event.llm_convertible.reasoning_utils import (
 )
 from openhands.sdk.event.types import SourceType, ToolCallID
 from openhands.sdk.llm import (
+    AnthropicCompactionBlock,
     Message,
     MessageToolCall,
     ReasoningItemModel,
@@ -33,6 +34,10 @@ class ActionEvent(LLMConvertibleEvent):
     thinking_blocks: list[ThinkingBlock | RedactedThinkingBlock] = Field(
         default_factory=list,
         description="Anthropic thinking blocks from the LLM response",
+    )
+    anthropic_compaction_blocks: list[AnthropicCompactionBlock] = Field(
+        default_factory=list,
+        description="Anthropic server-side compaction blocks from the LLM response",
     )
     responses_reasoning_item: ReasoningItemModel | None = Field(
         default=None, description="OpenAI Responses reasoning item from model output"
@@ -140,6 +145,7 @@ class ActionEvent(LLMConvertibleEvent):
             tool_calls=[self.tool_call],
             reasoning_content=self.reasoning_content,
             thinking_blocks=self.thinking_blocks,
+            anthropic_compaction_blocks=self.anthropic_compaction_blocks,
             responses_reasoning_item=self.responses_reasoning_item,
         )
 

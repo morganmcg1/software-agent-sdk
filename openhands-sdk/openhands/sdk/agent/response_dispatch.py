@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from openhands.sdk.critic.base import CriticBase, CriticResult
     from openhands.sdk.event import ActionEvent
     from openhands.sdk.llm import (
+        AnthropicCompactionBlock,
         MessageToolCall,
         ReasoningItemModel,
         RedactedThinkingBlock,
@@ -71,6 +72,7 @@ def classify_response(message: Message) -> LLMResponseType:
         message.responses_reasoning_item is not None
         or message.reasoning_content is not None
         or message.thinking_blocks
+        or message.anthropic_compaction_blocks
     ):
         return LLMResponseType.REASONING_ONLY
 
@@ -105,6 +107,7 @@ class ResponseDispatchMixin:
             thinking_blocks: (
                 list[ThinkingBlock | RedactedThinkingBlock] | None
             ) = None,
+            anthropic_compaction_blocks: (list[AnthropicCompactionBlock] | None) = None,
             responses_reasoning_item: ReasoningItemModel | None = None,
         ) -> ActionEvent | None: ...
 
@@ -169,6 +172,9 @@ class ResponseDispatchMixin:
                 thought=thought_content if i == 0 else [],
                 reasoning_content=(message.reasoning_content if i == 0 else None),
                 thinking_blocks=(list(message.thinking_blocks) if i == 0 else []),
+                anthropic_compaction_blocks=(
+                    list(message.anthropic_compaction_blocks) if i == 0 else []
+                ),
                 responses_reasoning_item=(
                     message.responses_reasoning_item if i == 0 else None
                 ),
@@ -219,6 +225,9 @@ class ResponseDispatchMixin:
                 thought=thought_content if i == 0 else [],
                 reasoning_content=(message.reasoning_content if i == 0 else None),
                 thinking_blocks=(list(message.thinking_blocks) if i == 0 else []),
+                anthropic_compaction_blocks=(
+                    list(message.anthropic_compaction_blocks) if i == 0 else []
+                ),
                 responses_reasoning_item=(
                     message.responses_reasoning_item if i == 0 else None
                 ),

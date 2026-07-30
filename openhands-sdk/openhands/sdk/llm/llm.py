@@ -582,6 +582,29 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         ),
         json_schema_extra=field_meta(),
     )
+    anthropic_compact_threshold: int | None = Field(
+        default=None,
+        ge=50_000,
+        description=(
+            "Enable Anthropic server-side compaction at this input-token threshold. "
+            "The returned block is persisted and replayed; OpenHands' local "
+            "condenser is bypassed."
+        ),
+        json_schema_extra=field_meta(),
+    )
+    anthropic_compaction_instructions: str | None = Field(
+        default=(
+            "Preserve goals, decisions, constraints, completed work, exact "
+            "identifiers, and pending work needed to continue. Do not call tools "
+            "while writing this summary; return text only."
+        ),
+        description=(
+            "Instructions for Anthropic's compaction summary. Keep the prohibition "
+            "on tool calls because a tool call during compaction can produce an "
+            "unusable empty compaction block."
+        ),
+        json_schema_extra=field_meta(),
+    )
     prompt_cache_ttl: PromptCacheTTL = Field(
         default="5m",
         description=(
@@ -2632,6 +2655,14 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         if self.api_mode != "auto":
             return self.api_mode == "responses"
         return self._model_features().supports_responses_api
+
+    def uses_anthropic_compaction(self) -> bool:
+        """Whether Anthropic owns context compaction for this LLM."""
+
+        return bool(
+            self.anthropic_compact_threshold is not None
+            and self._infer_model_info_provider() == "anthropic"
+        )
 
     @property
     def model_info(self) -> dict | None:

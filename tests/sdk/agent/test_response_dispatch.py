@@ -13,6 +13,7 @@ from openhands.sdk.conversation.stuck_detector import StuckDetector
 from openhands.sdk.event import ActionEvent, Event, MessageEvent, ObservationEvent
 from openhands.sdk.llm import (
     LLM,
+    AnthropicCompactionBlock,
     LLMResponse,
     Message,
     MessageToolCall,
@@ -240,6 +241,22 @@ def _user_message(text: str) -> MessageEvent:
         source="user",
         llm_message=Message(role="user", content=[TextContent(text=text)]),
     )
+
+
+def test_tool_action_preserves_anthropic_compaction_block() -> None:
+    block = AnthropicCompactionBlock(content="Durable provider summary")
+    response = _make_llm_response(
+        Message(
+            role="assistant",
+            tool_calls=[_tool_call()],
+            anthropic_compaction_blocks=[block],
+        )
+    )
+
+    events, _ = _run_single_step(response)
+
+    action = next(event for event in events if isinstance(event, ActionEvent))
+    assert action.anthropic_compaction_blocks == [block]
 
 
 def _repeating_terminal_loop_events(repeat_count: int) -> list[Event]:

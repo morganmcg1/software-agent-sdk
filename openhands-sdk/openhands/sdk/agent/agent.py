@@ -52,6 +52,7 @@ from openhands.sdk.event.condenser import (
 )
 from openhands.sdk.llm import (
     LLM,
+    AnthropicCompactionBlock,
     ImageContent,
     LLMResponse,
     Message,
@@ -1110,6 +1111,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         thought: list[TextContent] | None = None,
         reasoning_content: str | None = None,
         thinking_blocks: list[ThinkingBlock | RedactedThinkingBlock] | None = None,
+        anthropic_compaction_blocks: list[AnthropicCompactionBlock] | None = None,
         responses_reasoning_item: ReasoningItemModel | None = None,
     ) -> None:
         try:
@@ -1131,6 +1133,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             thought=thought or [],
             reasoning_content=reasoning_content,
             thinking_blocks=thinking_blocks or [],
+            anthropic_compaction_blocks=anthropic_compaction_blocks or [],
             responses_reasoning_item=responses_reasoning_item,
             tool_call=tool_call,
             tool_name=tool_call.name,
@@ -1157,6 +1160,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         thought: list[TextContent] | None = None,
         reasoning_content: str | None = None,
         thinking_blocks: list[ThinkingBlock | RedactedThinkingBlock] | None = None,
+        anthropic_compaction_blocks: list[AnthropicCompactionBlock] | None = None,
         responses_reasoning_item: ReasoningItemModel | None = None,
     ) -> ActionEvent | None:
         """Converts a tool call into an ActionEvent, validating arguments.
@@ -1197,6 +1201,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                     thought=thought,
                     reasoning_content=reasoning_content,
                     thinking_blocks=thinking_blocks,
+                    anthropic_compaction_blocks=anthropic_compaction_blocks,
                     responses_reasoning_item=responses_reasoning_item,
                 )
                 return
@@ -1253,6 +1258,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                 thought=thought,
                 reasoning_content=reasoning_content,
                 thinking_blocks=thinking_blocks,
+                anthropic_compaction_blocks=anthropic_compaction_blocks,
                 responses_reasoning_item=responses_reasoning_item,
             )
             return
@@ -1263,6 +1269,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             thought=thought or [],
             reasoning_content=reasoning_content,
             thinking_blocks=thinking_blocks or [],
+            anthropic_compaction_blocks=anthropic_compaction_blocks or [],
             responses_reasoning_item=responses_reasoning_item,
             tool_name=tool.name,
             tool_call_id=normalized_tool_call.id,
@@ -1367,11 +1374,26 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                 self.llm.uses_responses_api()
                 and self.llm.responses_use_previous_response_id
             )
+            and not self.llm.uses_anthropic_compaction()
         )
 
     def _log_context_window_exceeded_warning(self) -> None:
         """Log a helpful warning when context window is exceeded without a condenser."""
-        if (
+        if self.llm.uses_anthropic_compaction():
+            situation = (
+                "The provider-managed Anthropic context window has been exceeded."
+            )
+            config = (
+                f"  • LLM Model: {self.llm.model}\n"
+                f"  • Compaction Threshold: "
+                f"{self.llm.anthropic_compact_threshold}"
+            )
+            advice = (
+                "OpenHands local condensation is intentionally disabled for "
+                "Anthropic server-side compaction. Lower "
+                "anthropic_compact_threshold or verify model support."
+            )
+        elif (
             self.llm.uses_responses_api()
             and self.llm.responses_use_previous_response_id
         ):

@@ -79,6 +79,28 @@ def _responses_continuation_events(
     ]
 
 
+def _anthropic_compaction_events(
+    events: list[LLMConvertibleEvent],
+) -> list[LLMConvertibleEvent]:
+    """Keep system instructions and the tail from Anthropic's latest block."""
+
+    boundary = max(
+        (
+            index
+            for index, event in enumerate(events)
+            if event.to_llm_message().anthropic_compaction_blocks
+        ),
+        default=-1,
+    )
+    if boundary < 0:
+        return events
+    return [
+        event
+        for index, event in enumerate(events)
+        if isinstance(event, SystemPromptEvent) or index >= boundary
+    ]
+
+
 def _escape_control_char(m: re.Match[str]) -> str:
     """Replace a single raw control character with its JSON escape."""
     ch = m.group(0)
@@ -613,7 +635,8 @@ def prepare_llm_messages(
     stored_responses = bool(
         llm and llm.uses_responses_api() and llm.responses_use_previous_response_id
     )
-    if condenser is not None and not stored_responses:
+    anthropic_compaction = bool(llm and llm.uses_anthropic_compaction())
+    if condenser is not None and not (stored_responses or anthropic_compaction):
         condensation_result = condenser.condense(view, agent_llm=llm)
 
         match condensation_result:
@@ -628,6 +651,8 @@ def prepare_llm_messages(
             llm_convertible_events,
             call_context.previous_response_id,
         )
+    elif anthropic_compaction:
+        llm_convertible_events = _anthropic_compaction_events(llm_convertible_events)
 
     # Convert events to messages
     messages = LLMConvertibleEvent.events_to_messages(llm_convertible_events)
@@ -712,7 +737,8 @@ async def aprepare_llm_messages(
     stored_responses = bool(
         llm and llm.uses_responses_api() and llm.responses_use_previous_response_id
     )
-    if condenser is not None and not stored_responses:
+    anthropic_compaction = bool(llm and llm.uses_anthropic_compaction())
+    if condenser is not None and not (stored_responses or anthropic_compaction):
         condensation_result = await condenser.acondense(view, agent_llm=llm)
 
         match condensation_result:
@@ -726,6 +752,8 @@ async def aprepare_llm_messages(
             llm_convertible_events,
             call_context.previous_response_id,
         )
+    elif anthropic_compaction:
+        llm_convertible_events = _anthropic_compaction_events(llm_convertible_events)
 
     messages = LLMConvertibleEvent.events_to_messages(llm_convertible_events)
 

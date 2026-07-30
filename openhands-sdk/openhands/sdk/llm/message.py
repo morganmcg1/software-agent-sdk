@@ -154,6 +154,15 @@ class RedactedThinkingBlock(BaseModel):
     data: str = Field(..., description="The redacted thinking content")
 
 
+class AnthropicCompactionBlock(BaseModel):
+    """Opaque summary returned by Anthropic's server-side compaction."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["compaction"] = "compaction"
+    content: str = Field(min_length=1)
+
+
 class ReasoningItemModel(BaseModel):
     """OpenAI Responses reasoning item (non-stream, subset we consume).
 
@@ -253,6 +262,13 @@ class Message(BaseModel):
         default_factory=list,
         description="Raw Anthropic thinking blocks for extended thinking feature",
     )
+    anthropic_compaction_blocks: Sequence[AnthropicCompactionBlock] = Field(
+        default_factory=list,
+        description=(
+            "Anthropic server-side compaction blocks that must be replayed on "
+            "subsequent Messages API calls"
+        ),
+    )
     # OpenAI Responses reasoning item (when provided via Responses API output)
     responses_reasoning_item: ReasoningItemModel | None = Field(
         default=None,
@@ -347,6 +363,13 @@ class Message(BaseModel):
         # Required for model like kimi-k2-thinking
         if send_reasoning_content and self.reasoning_content:
             message_dict["reasoning_content"] = self.reasoning_content
+
+        if self.role == "assistant" and self.anthropic_compaction_blocks:
+            message_dict["provider_specific_fields"] = {
+                "compaction_blocks": [
+                    block.model_dump() for block in self.anthropic_compaction_blocks
+                ]
+            }
 
         return message_dict
 
@@ -518,6 +541,17 @@ class Message(BaseModel):
 
         rc = getattr(message, "reasoning_content", None)
         thinking_blocks = getattr(message, "thinking_blocks", None)
+        provider_fields = getattr(message, "provider_specific_fields", None) or {}
+        raw_compaction_blocks = provider_fields.get("compaction_blocks", [])
+        if any(not block.get("content") for block in raw_compaction_blocks):
+            raise ValueError(
+                "Received an empty Anthropic compaction block; provider state "
+                "cannot be replayed safely"
+            )
+        compaction_blocks = [
+            AnthropicCompactionBlock.model_validate(block)
+            for block in raw_compaction_blocks
+        ]
 
         # Convert to list of ThinkingBlock or RedactedThinkingBlock
         if thinking_blocks is not None:
@@ -563,6 +597,7 @@ class Message(BaseModel):
             tool_calls=tool_calls,
             reasoning_content=rc,
             thinking_blocks=thinking_blocks,
+            anthropic_compaction_blocks=compaction_blocks,
         )
 
     @classmethod
