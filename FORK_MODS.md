@@ -15,8 +15,8 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`aac9673f`](https://github.com/morganmcg1/software-agent-sdk/commit/aac9673f49a5a9e21e494b127df5bca923e7d8d7)
-- SDK and test divergence at that commit: 20 files changed, 631 insertions,
+  [`da7d76fe`](https://github.com/morganmcg1/software-agent-sdk/commit/da7d76fe3d0b0f5b169ff47c5617a8ecf38a004c)
+- SDK and test divergence at that commit: 20 files changed, 627 insertions,
   and 48 deletions.
 
 All runtime changes are confined to `openhands-sdk`; this fork does not change
@@ -33,7 +33,7 @@ git diff upstream/main...main
 
 ## Intentional changes
 
-### Explicit Responses stable-prefix cache breakpoint — 2026-07-30 13:10:51 +01:00 — [`aac9673f`](https://github.com/morganmcg1/software-agent-sdk/commit/aac9673f49a5a9e21e494b127df5bca923e7d8d7)
+### Explicit Responses stable-prefix cache breakpoint — updated 2026-07-30 13:18:15 +01:00 — [`aac9673f`](https://github.com/morganmcg1/software-agent-sdk/commit/aac9673f49a5a9e21e494b127df5bca923e7d8d7), [`da7d76fe`](https://github.com/morganmcg1/software-agent-sdk/commit/da7d76fe3d0b0f5b169ff47c5617a8ecf38a004c)
 
 Purpose: expose OpenAI's explicit Responses cache boundary without rewriting a
 serialized request outside the SDK. This is opt-in; upstream-compatible
