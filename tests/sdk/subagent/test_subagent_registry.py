@@ -214,6 +214,20 @@ def test_agent_definition_to_factory_model_inherit() -> None:
     assert agent.llm.model == "gpt-4o"
 
 
+def test_agent_definition_to_factory_reasoning_effort_override() -> None:
+    agent_def = AgentDefinition(
+        name="reasoning-agent",
+        model="inherit",
+        reasoning_effort="low",
+    )
+
+    llm = _make_test_llm().model_copy(update={"reasoning_effort": "xhigh"})
+    agent = agent_definition_to_factory(agent_def)(llm)
+
+    assert agent.llm is not llm
+    assert agent.llm.reasoning_effort == "low"
+
+
 def test_agent_definition_to_factory_model_override() -> None:
     """Non-inherit model that isn't a stored profile raises ValueError."""
     agent_def = AgentDefinition(

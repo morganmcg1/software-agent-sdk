@@ -108,6 +108,9 @@ Supported YAML frontmatter keys (see `AgentDefinition.load` in `schema.py`):
 - `model` (default: `inherit`)
   - `inherit` means “use the parent agent’s LLM instance”
   - any other string means “copy parent LLM and override the `model` field”
+- `reasoning_effort` (default: inherit)
+  - absent or `inherit` preserves the parent LLM setting
+  - any other string overrides the spawned agent's reasoning effort
 - `color` (optional)
 
 **Unknown keys are preserved** in `AgentDefinition.metadata`.

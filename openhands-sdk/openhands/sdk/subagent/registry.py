@@ -227,6 +227,11 @@ def agent_definition_to_factory(
 
             llm = store.load(profile_name)
 
+        if agent_def.reasoning_effort is not None:
+            llm = llm.model_copy(
+                update={"reasoning_effort": agent_def.reasoning_effort}
+            )
+
         # the system prompt of the subagent is added as a suffix of the
         # main system prompt
         has_context = agent_def.system_prompt or resolved_skills

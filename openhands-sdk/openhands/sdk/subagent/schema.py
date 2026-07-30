@@ -27,6 +27,7 @@ KNOWN_FIELDS: Final[set[str]] = {
     "name",
     "description",
     "model",
+    "reasoning_effort",
     "color",
     "tools",
     "skills",
@@ -114,6 +115,14 @@ def _extract_profile_store_dir(fm: dict[str, object]) -> str | None:
     raise ValueError(
         f"profile_store_dir must be a scalar value, got {type(profile_store_dir_raw)}"
     )
+
+
+def _extract_reasoning_effort(fm: dict[str, object]) -> str | None:
+    raw = fm.get("reasoning_effort")
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value if value and value != "inherit" else None
 
 
 def _extract_examples(description: str) -> list[str]:
@@ -206,6 +215,12 @@ class AgentDefinition(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str = Field(
         default="inherit", description="Model to use ('inherit' uses parent model)"
+    )
+    reasoning_effort: str | None = Field(
+        default=None,
+        description=(
+            "Reasoning effort for this agent. None preserves the parent LLM setting."
+        ),
     )
     color: str | None = Field(default=None, description="Display color for the agent")
     tools: list[str] = Field(
@@ -361,6 +376,7 @@ class AgentDefinition(BaseModel):
         - skills (optional): Comma-separated skill names or list of skill names
         - mcp_config (optional): MCP server configurations mapping
         - model (optional): Model profile to use (default: 'inherit')
+        - reasoning_effort (optional): Override the parent LLM reasoning effort
         - color (optional): Display color
         - permission_mode (optional): How the subagent handles permissions
           ('always_confirm', 'never_confirm', 'confirm_risky'). None inherits parent.
@@ -385,6 +401,7 @@ class AgentDefinition(BaseModel):
         name: str = str(fm.get("name", agent_path.stem))
         description: str = str(fm.get("description", ""))
         model: str = str(fm.get("model", "inherit"))
+        reasoning_effort = _extract_reasoning_effort(fm)
         color: str | None = _extract_color(fm)
         tools: list[str] = _extract_tools(fm)
         skills: list[str] = _extract_skills(fm)
@@ -406,6 +423,7 @@ class AgentDefinition(BaseModel):
             name=name,
             description=description,
             model=model,
+            reasoning_effort=reasoning_effort,
             color=color,
             tools=tools,
             skills=skills,

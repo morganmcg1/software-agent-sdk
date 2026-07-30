@@ -102,7 +102,38 @@ Just content.
         agent = AgentDefinition.load(agent_md)
         assert agent.name == "minimal"  # From filename
         assert agent.model == "inherit"
+        assert agent.reasoning_effort is None
         assert agent.tools == []
+
+    def test_load_agent_with_reasoning_effort(self, tmp_path: Path):
+        agent_md = tmp_path / "reasoning.md"
+        agent_md.write_text(
+            """---
+name: reasoning
+reasoning_effort: xhigh
+---
+
+Content.
+"""
+        )
+
+        agent = AgentDefinition.load(agent_md)
+        assert agent.reasoning_effort == "xhigh"
+        assert "reasoning_effort" not in agent.metadata
+
+    def test_load_agent_with_inherited_reasoning_effort(self, tmp_path: Path):
+        agent_md = tmp_path / "reasoning.md"
+        agent_md.write_text(
+            """---
+name: reasoning
+reasoning_effort: inherit
+---
+
+Content.
+"""
+        )
+
+        assert AgentDefinition.load(agent_md).reasoning_effort is None
 
     def test_load_agent_with_max_iteration_per_run(self, tmp_path: Path):
         """Test loading agent with max_iteration_per_run."""
