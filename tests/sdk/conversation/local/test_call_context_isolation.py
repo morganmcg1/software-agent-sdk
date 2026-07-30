@@ -11,7 +11,8 @@ from pydantic import SecretStr
 
 from openhands.sdk.agent import Agent
 from openhands.sdk.conversation import Conversation
-from openhands.sdk.llm import LLM
+from openhands.sdk.event import MessageEvent
+from openhands.sdk.llm import LLM, Message, TextContent
 from openhands.sdk.llm.llm import LLMCallContext
 from openhands.sdk.llm.options.chat_options import select_chat_options
 from openhands.sdk.llm.options.responses_options import select_responses_options
@@ -38,6 +39,7 @@ def test_call_context_defaults_to_empty():
     ctx = llm._call_context
     assert ctx.prompt_cache_key is None
     assert ctx.session_id is None
+    assert ctx.previous_response_id is None
 
 
 def test_call_context_is_assignable():
@@ -54,6 +56,7 @@ def test_call_context_dropped_on_json_round_trip():
     restored = LLM.model_validate(llm.model_dump(context={"expose_secrets": True}))
     assert restored._call_context.prompt_cache_key is None
     assert restored._call_context.session_id is None
+    assert restored._call_context.previous_response_id is None
 
 
 def test_call_context_shallow_copied_by_model_copy():
@@ -65,6 +68,22 @@ def test_call_context_shallow_copied_by_model_copy():
     child = llm.model_copy(update={"usage_id": "child"})
     assert child._call_context.prompt_cache_key == "parent"
     assert child._call_context.session_id == "parent-sess"
+
+
+def test_conversation_context_recovers_latest_openai_response_id():
+    conv = Conversation(agent=_agent())
+    conv._on_event(
+        MessageEvent(
+            source="agent",
+            llm_message=Message(
+                role="assistant",
+                content=[TextContent(text="durable response")],
+            ),
+            llm_response_id="resp_durable",
+        )
+    )
+
+    assert conv.get_llm_call_context().previous_response_id == "resp_durable"
 
 
 # ── select_chat_options injection tests ────────────────────────────────

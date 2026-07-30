@@ -649,7 +649,10 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         # Prepare LLM messages from the cached, incrementally-maintained view.
         # See https://github.com/OpenHands/software-agent-sdk/issues/3053.
         _messages_or_condensation = prepare_llm_messages(
-            state.view, condenser=self.condenser, llm=self.llm
+            state.view,
+            condenser=self.condenser,
+            llm=self.llm,
+            call_context=call_context,
         )
 
         # Process condensation event before agent sampels another action
@@ -734,10 +737,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             # this into condensation recovery, but keep the logs distinct from
             # true context-window exhaustion so upstream event-stream bugs remain
             # visible.
-            if (
-                self.condenser is not None
-                and self.condenser.handles_condensation_requests()
-            ):
+            if self._can_use_local_condenser():
                 logger.warning(
                     "LLM raised malformed conversation history error, "
                     "triggering condensation retry with condensed history: "
@@ -758,10 +758,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             raise e
         except LLMContextWindowExceedError as e:
             # If condenser is available and handles requests, trigger condensation
-            if (
-                self.condenser is not None
-                and self.condenser.handles_condensation_requests()
-            ):
+            if self._can_use_local_condenser():
                 logger.warning(
                     "LLM raised context window exceeded error, triggering condensation"
                 )
@@ -838,7 +835,10 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         # Prepare LLM messages from the cached, incrementally-maintained view.
         # See https://github.com/OpenHands/software-agent-sdk/issues/3053.
         _messages_or_condensation = await aprepare_llm_messages(
-            state.view, condenser=self.condenser, llm=self.llm
+            state.view,
+            condenser=self.condenser,
+            llm=self.llm,
+            call_context=call_context,
         )
 
         if isinstance(_messages_or_condensation, Condensation):
@@ -927,10 +927,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             # condensation recovery, but keep the logs distinct from
             # true context-window exhaustion so upstream event-stream
             # bugs remain visible.
-            if (
-                self.condenser is not None
-                and self.condenser.handles_condensation_requests()
-            ):
+            if self._can_use_local_condenser():
                 logger.warning(
                     "LLM raised malformed conversation history error, "
                     "triggering condensation retry with condensed "
@@ -953,10 +950,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         except LLMContextWindowExceedError as e:
             # If condenser is available and handles requests, trigger
             # condensation
-            if (
-                self.condenser is not None
-                and self.condenser.handles_condensation_requests()
-            ):
+            if self._can_use_local_condenser():
                 logger.warning(
                     "LLM raised context window exceeded error, triggering condensation"
                 )
@@ -1365,9 +1359,36 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             )
             on_event(token_event)
 
+    def _can_use_local_condenser(self) -> bool:
+        return bool(
+            self.condenser is not None
+            and self.condenser.handles_condensation_requests()
+            and not (
+                self.llm.uses_responses_api()
+                and self.llm.responses_use_previous_response_id
+            )
+        )
+
     def _log_context_window_exceeded_warning(self) -> None:
         """Log a helpful warning when context window is exceeded without a condenser."""
-        if self.condenser is None:
+        if (
+            self.llm.uses_responses_api()
+            and self.llm.responses_use_previous_response_id
+        ):
+            situation = (
+                "The provider-managed Responses API context window has been exceeded."
+            )
+            config = (
+                f"  • LLM Model: {self.llm.model}\n"
+                f"  • Compaction Threshold: "
+                f"{self.llm.responses_compact_threshold}"
+            )
+            advice = (
+                "OpenHands local condensation is intentionally disabled for stored "
+                "response chains. Lower responses_compact_threshold or verify that "
+                "the selected model supports Responses API compaction."
+            )
+        elif self.condenser is None:
             situation = (
                 "The LLM's context window has been exceeded, but no condenser is "
                 "configured."

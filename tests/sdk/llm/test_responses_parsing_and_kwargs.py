@@ -92,6 +92,43 @@ def test_normalize_responses_kwargs_policy():
     assert out["max_output_tokens"] == 128
 
 
+def test_stored_responses_options_continue_reasoning_and_compact():
+    llm = LLM(
+        model="openai/gpt-5.1",
+        api_mode="responses",
+        capability_overrides={"supports_reasoning_effort": True},
+        reasoning_context="all_turns",
+        responses_store=True,
+        responses_use_previous_response_id=True,
+        responses_compact_threshold=200_000,
+    )
+    call_context = LLMCallContext(previous_response_id="resp_previous")
+
+    out = select_responses_options(
+        llm,
+        {},
+        include=None,
+        store=llm.responses_store,
+        call_context=call_context,
+    )
+
+    assert out["store"] is True
+    assert out["previous_response_id"] == "resp_previous"
+    assert out["reasoning"]["context"] == "all_turns"
+    assert out["context_management"] == [
+        {"type": "compaction", "compact_threshold": 200_000}
+    ]
+    assert "include" not in out
+
+
+def test_previous_response_id_requires_stored_responses():
+    with pytest.raises(ValueError, match="requires responses_store=True"):
+        LLM(
+            model="openai/gpt-5.1",
+            responses_use_previous_response_id=True,
+        )
+
+
 def test_responses_options_strip_sampling_when_metadata_rejects_it():
     llm = LLM(
         model="proxy/future-responses-model",

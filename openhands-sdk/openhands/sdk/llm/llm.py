@@ -200,6 +200,7 @@ class LLMCallContext:
 
     prompt_cache_key: str | None = None
     session_id: str | None = None
+    previous_response_id: str | None = None
 
 
 class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
@@ -531,10 +532,45 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         "Requires verified OpenAI organization. Only sent when explicitly set.",
         json_schema_extra=field_meta(),
     )
+    reasoning_context: Literal["current_turn", "all_turns"] | None = Field(
+        default=None,
+        description=(
+            "OpenAI Responses reasoning context policy. 'all_turns' lets supported "
+            "models reuse private reasoning from responses linked with "
+            "previous_response_id."
+        ),
+        json_schema_extra=field_meta(),
+    )
     enable_encrypted_reasoning: bool = Field(
         default=True,
         description="If True, ask for ['reasoning.encrypted_content'] "
         "in Responses API include.",
+        json_schema_extra=field_meta(),
+    )
+    responses_store: bool = Field(
+        default=False,
+        description=(
+            "Store Responses API results at the provider. Required when "
+            "responses_use_previous_response_id is enabled."
+        ),
+        json_schema_extra=field_meta(),
+    )
+    responses_use_previous_response_id: bool = Field(
+        default=False,
+        description=(
+            "Continue a stored Responses API chain by passing the latest durable "
+            "response ID and sending only inputs created after that response."
+        ),
+        json_schema_extra=field_meta(),
+    )
+    responses_compact_threshold: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Enable provider-side Responses API compaction at this rendered-token "
+            "threshold. OpenHands' local condenser is bypassed while stored response "
+            "continuation is active."
+        ),
         json_schema_extra=field_meta(),
     )
     prompt_cache_ttl: PromptCacheTTL = Field(
@@ -670,6 +706,12 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         model_val = d.get("model")
         if not model_val:
             raise ValueError("model must be specified in LLM")
+        if d.get("responses_use_previous_response_id") and not d.get(
+            "responses_store"
+        ):
+            raise ValueError(
+                "responses_use_previous_response_id requires responses_store=True"
+            )
 
         # Azure default version
         if model_val.startswith("azure") and not d.get("api_version"):

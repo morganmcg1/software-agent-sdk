@@ -37,6 +37,42 @@ class RaisingLLM(LLM):
         raise LLMContextWindowExceedError()
 
 
+class StoredResponsesRaisingLLM(LLM):
+    def __init__(self):
+        super().__init__(
+            model="openai/gpt-5.1",
+            usage_id="test-llm",
+            api_mode="responses",
+            responses_store=True,
+            responses_use_previous_response_id=True,
+            responses_compact_threshold=200_000,
+        )
+
+    def responses(self, *, messages, tools=None, **kwargs):  # type: ignore[override]
+        raise LLMContextWindowExceedError()
+
+
+class MustNotRunCondenser(CondenserBase):
+    def condense(self, view: View, agent_llm: "LLM | None" = None):
+        raise AssertionError("local condenser must not run for stored Responses")
+
+    def handles_condensation_requests(self) -> bool:
+        return True
+
+
+def test_stored_responses_bypasses_local_condenser():
+    agent = Agent(
+        llm=StoredResponsesRaisingLLM(),
+        tools=[],
+        condenser=MustNotRunCondenser(),
+    )
+    convo = Conversation(agent=agent)
+    convo._ensure_agent_ready()
+
+    with pytest.raises(LLMContextWindowExceedError):
+        agent.step(convo, on_event=lambda e: None)
+
+
 class MalformedHistoryRaisingLLM(LLM):
     _force_responses: bool = PrivateAttr(default=False)
 

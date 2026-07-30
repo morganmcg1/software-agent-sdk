@@ -1478,12 +1478,25 @@ class LocalConversation(BaseConversation):
 
         The ``prompt_cache_key`` uses the override supplied at construction
         (for sub-agent cache-shard sharing) or defaults to the conversation's
-        own ID.  ``session_id`` is always the conversation's ID.
+        own ID. ``session_id`` is always the conversation's ID. The most recent
+        OpenAI response ID is recovered from the durable active branch so a
+        stored Responses API chain survives process restarts.
         """
         conv_id = str(self._state.id)
+        previous_response_id = next(
+            (
+                str(response_id)
+                for event in reversed(self._state.view.events)
+                if isinstance(event, (ActionEvent, MessageEvent))
+                and (response_id := event.llm_response_id)
+                and str(response_id).startswith("resp_")
+            ),
+            None,
+        )
         return LLMCallContext(
             prompt_cache_key=self._prompt_cache_key or conv_id,
             session_id=conv_id,
+            previous_response_id=previous_response_id,
         )
 
     def _bind_conversation_context(self, llm: LLM) -> None:
@@ -2683,6 +2696,10 @@ class LocalConversation(BaseConversation):
                 update={
                     "usage_id": ASK_AGENT_LLM_USAGE_ID,
                     "stream": False,
+                    "reasoning_context": "current_turn",
+                    "responses_store": False,
+                    "responses_use_previous_response_id": False,
+                    "responses_compact_threshold": None,
                 },
                 deep=True,
             )

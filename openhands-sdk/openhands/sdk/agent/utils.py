@@ -26,6 +26,9 @@ from openhands.sdk.context.view import View
 from openhands.sdk.conversation.types import ConversationTokenCallbackType
 from openhands.sdk.event.base import LLMConvertibleEvent
 from openhands.sdk.event.condenser import Condensation
+from openhands.sdk.event.llm_convertible.action import ActionEvent
+from openhands.sdk.event.llm_convertible.message import MessageEvent
+from openhands.sdk.event.llm_convertible.system import SystemPromptEvent
 from openhands.sdk.llm import LLM, LLMResponse, Message
 from openhands.sdk.tool import Action, ToolDefinition
 
@@ -51,6 +54,29 @@ _CTRL_ESCAPE_TABLE: dict[int, str] = {
 
 
 logger = logging.getLogger(__name__)
+
+
+def _responses_continuation_events(
+    events: list[LLMConvertibleEvent],
+    previous_response_id: str,
+) -> list[LLMConvertibleEvent]:
+    """Keep current instructions and inputs created after a stored response."""
+    boundary = max(
+        (
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, (ActionEvent, MessageEvent))
+            and event.llm_response_id == previous_response_id
+        ),
+        default=-1,
+    )
+    if boundary < 0:
+        return events
+    return [
+        event
+        for index, event in enumerate(events)
+        if isinstance(event, SystemPromptEvent) or index > boundary
+    ]
 
 
 def _escape_control_char(m: re.Match[str]) -> str:
@@ -533,6 +559,7 @@ def prepare_llm_messages(
     condenser: None = None,
     additional_messages: list[Message] | None = None,
     llm: LLM | None = None,
+    call_context: LLMCallContext | None = None,
 ) -> list[Message]: ...
 
 
@@ -542,6 +569,7 @@ def prepare_llm_messages(
     condenser: CondenserBase,
     additional_messages: list[Message] | None = None,
     llm: LLM | None = None,
+    call_context: LLMCallContext | None = None,
 ) -> list[Message] | Condensation: ...
 
 
@@ -550,6 +578,7 @@ def prepare_llm_messages(
     condenser: CondenserBase | None = None,
     additional_messages: list[Message] | None = None,
     llm: LLM | None = None,
+    call_context: LLMCallContext | None = None,
 ) -> list[Message] | Condensation:
     """Prepare LLM messages from a conversation view.
 
@@ -569,6 +598,7 @@ def prepare_llm_messages(
         additional_messages: Optional additional messages to append
         llm: Optional LLM instance from the agent, passed to condenser for
             token counting or other LLM features
+        call_context: Optional conversation-scoped response continuation state
 
     Returns:
         List of messages ready for LLM completion, or a Condensation event
@@ -580,7 +610,10 @@ def prepare_llm_messages(
     # opportunity to transform the events. This will either
     # produce a list of events, exactly as expected, or a
     # new condensation that needs to be processed
-    if condenser is not None:
+    stored_responses = bool(
+        llm and llm.uses_responses_api() and llm.responses_use_previous_response_id
+    )
+    if condenser is not None and not stored_responses:
         condensation_result = condenser.condense(view, agent_llm=llm)
 
         match condensation_result:
@@ -589,6 +622,12 @@ def prepare_llm_messages(
 
             case Condensation():
                 return condensation_result
+
+    if stored_responses and call_context and call_context.previous_response_id:
+        llm_convertible_events = _responses_continuation_events(
+            llm_convertible_events,
+            call_context.previous_response_id,
+        )
 
     # Convert events to messages
     messages = LLMConvertibleEvent.events_to_messages(llm_convertible_events)
@@ -636,7 +675,7 @@ def make_llm_completion(
             messages=messages,
             tools=tools or [],
             include=None,
-            store=False,
+            store=None,
             add_security_risk_prediction=True,
             on_token=on_token,
             call_context=call_context,
@@ -661,6 +700,7 @@ async def aprepare_llm_messages(
     condenser: CondenserBase | None = None,
     additional_messages: list[Message] | None = None,
     llm: LLM | None = None,
+    call_context: LLMCallContext | None = None,
 ) -> list[Message] | Condensation:
     """Async variant of :func:`prepare_llm_messages`.
 
@@ -669,7 +709,10 @@ async def aprepare_llm_messages(
     """
     llm_convertible_events: list[LLMConvertibleEvent] = view.events
 
-    if condenser is not None:
+    stored_responses = bool(
+        llm and llm.uses_responses_api() and llm.responses_use_previous_response_id
+    )
+    if condenser is not None and not stored_responses:
         condensation_result = await condenser.acondense(view, agent_llm=llm)
 
         match condensation_result:
@@ -677,6 +720,12 @@ async def aprepare_llm_messages(
                 llm_convertible_events = condensation_result.events
             case Condensation():
                 return condensation_result
+
+    if stored_responses and call_context and call_context.previous_response_id:
+        llm_convertible_events = _responses_continuation_events(
+            llm_convertible_events,
+            call_context.previous_response_id,
+        )
 
     messages = LLMConvertibleEvent.events_to_messages(llm_convertible_events)
 
@@ -699,7 +748,7 @@ async def amake_llm_completion(
             messages=messages,
             tools=tools or [],
             include=None,
-            store=False,
+            store=None,
             add_security_risk_prediction=True,
             on_token=on_token,
             call_context=call_context,

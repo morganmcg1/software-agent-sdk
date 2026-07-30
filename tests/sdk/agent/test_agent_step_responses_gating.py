@@ -7,7 +7,7 @@ from pydantic import PrivateAttr
 from openhands.sdk.agent import Agent
 from openhands.sdk.conversation import Conversation
 from openhands.sdk.event import MessageEvent
-from openhands.sdk.llm import LLM, LLMResponse, Message
+from openhands.sdk.llm import LLM, LLMResponse, Message, TextContent
 from openhands.sdk.llm.utils.metrics import MetricsSnapshot, TokenUsage
 
 
@@ -49,6 +49,59 @@ class DummyLLM(LLM):
             ),
             raw_response=MagicMock(spec=ModelResponse, id="r1"),
         )
+
+
+class StatefulResponsesLLM(LLM):
+    _calls: list[dict] = PrivateAttr(default_factory=list)
+
+    def __init__(self):
+        super().__init__(
+            model="openai/gpt-5.1",
+            usage_id="test-llm",
+            api_mode="responses",
+            responses_store=True,
+            responses_use_previous_response_id=True,
+        )
+
+    def responses(self, *, messages, tools=None, **kwargs) -> LLMResponse:  # type: ignore[override]
+        self._calls.append({"messages": messages, **kwargs})
+        response_number = len(self._calls)
+        return LLMResponse(
+            message=Message(
+                role="assistant",
+                content=[TextContent(text=f"response {response_number}")],
+            ),
+            metrics=MetricsSnapshot(
+                model_name="test",
+                accumulated_cost=0.0,
+                max_budget_per_task=0.0,
+                accumulated_token_usage=TokenUsage(model="test"),
+            ),
+            raw_response=MagicMock(
+                spec=ModelResponse,
+                id=f"resp_{response_number}",
+            ),
+        )
+
+
+def test_agent_continues_stored_response_with_only_new_input():
+    llm = StatefulResponsesLLM()
+    agent = Agent(llm=llm, tools=[])
+    convo = Conversation(agent=agent)
+
+    convo.send_message("first request")
+    agent.step(convo, on_event=convo._on_event)
+    convo.send_message("second request")
+    agent.step(convo, on_event=convo._on_event)
+
+    assert len(llm._calls) == 2
+    first, second = llm._calls
+    assert first["store"] is None
+    assert first["call_context"].previous_response_id is None
+    assert second["store"] is None
+    assert second["call_context"].previous_response_id == "resp_1"
+    assert [message.role for message in second["messages"]] == ["system", "user"]
+    assert second["messages"][-1].content == [TextContent(text="second request")]
 
 
 @pytest.mark.parametrize(
