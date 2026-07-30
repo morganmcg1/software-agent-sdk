@@ -15,8 +15,8 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`527771ce`](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce74d68e2e031649cbb4eb9ebde6b5cf69)
-- Repository divergence at that commit: 24 files changed, 922 insertions,
+  [`afb3639c`](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c0e7846f25e33b10302b02611fcd72a3f)
+- Repository divergence at that commit: 31 files changed, 1,497 insertions,
   and 79 deletions.
 
 All runtime changes are confined to `openhands-sdk`; this fork does not change
@@ -32,6 +32,86 @@ git diff upstream/main...main
 ```
 
 ## Intentional changes
+
+### Durable Anthropic server-side compaction — 2026-07-30 14:01:19 +01:00 — [`afb3639c`](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c0e7846f25e33b10302b02611fcd72a3f)
+
+Purpose: use Anthropic's model-native compaction without losing its opaque
+continuation block during tool calls, process restarts, or OpenHands event
+reconstruction.
+
+Anthropic does not expose an OpenAI-style `previous_response_id`. Its Messages
+API remains stateless: after compaction, the caller must replay the returned
+`compaction` content block in later requests. This fork therefore enables
+compaction only after making that block first-class durable OpenHands state.
+
+Configuration and request construction:
+
+- [`openhands-sdk/openhands/sdk/llm/llm.py`](openhands-sdk/openhands/sdk/llm/llm.py)
+  - `LLM.anthropic_compact_threshold` enables native compaction with Anthropic's
+    documented 50,000-token minimum.
+  - `LLM.anthropic_compaction_instructions` defaults to a compact continuation
+    charter that preserves decisions and explicitly forbids tool calls while
+    summarizing. Anthropic documents that a tool call during compaction can
+    return an unusable block with no content.
+  - `LLM.uses_anthropic_compaction()` is the single provider gate used by the
+    request and agent paths.
+- [`openhands-sdk/openhands/sdk/llm/options/chat_options.py`](openhands-sdk/openhands/sdk/llm/options/chat_options.py)
+  - `select_chat_options()` sends
+    `context_management.edits[].type="compact_20260112"` with an input-token
+    trigger and optional instructions.
+  - An explicit caller-supplied `context_management` value wins.
+  - LiteLLM adds the required `compact-2026-01-12` beta header.
+
+Typed capture, persistence, and exact replay:
+
+- [`openhands-sdk/openhands/sdk/llm/message.py`](openhands-sdk/openhands/sdk/llm/message.py)
+  - `AnthropicCompactionBlock` models the provider's opaque `type` and
+    `content`.
+  - `Message.from_llm_chat_message()` captures LiteLLM's
+    `provider_specific_fields.compaction_blocks`.
+  - `Message.to_chat_dict()` restores those provider fields. LiteLLM then puts
+    the compaction block first in the Anthropic assistant content array, as the
+    API requires.
+  - An empty block fails loudly instead of silently discarding continuation
+    state.
+- [`openhands-sdk/openhands/sdk/event/llm_convertible/action.py`](openhands-sdk/openhands/sdk/event/llm_convertible/action.py),
+  [`openhands-sdk/openhands/sdk/event/base.py`](openhands-sdk/openhands/sdk/event/base.py),
+  [`openhands-sdk/openhands/sdk/agent/response_dispatch.py`](openhands-sdk/openhands/sdk/agent/response_dispatch.py),
+  and
+  [`openhands-sdk/openhands/sdk/agent/agent.py`](openhands-sdk/openhands/sdk/agent/agent.py)
+  - Preserve the block through message events, tool actions, tool validation
+    errors, parallel tool-call reconstruction, and JSON event serialization.
+  - A compaction-only response is retained as provider reasoning state rather
+    than classified as empty.
+
+Context ownership and data retention:
+
+- [`openhands-sdk/openhands/sdk/agent/utils.py`](openhands-sdk/openhands/sdk/agent/utils.py)
+  - Before the first provider block, Anthropic receives the normal complete
+    OpenHands view.
+  - After compaction, only system instructions, the assistant event containing
+    the latest block, and subsequent events are sent. Anthropic documents that
+    content before the block is ignored.
+  - This is an outbound view reduction only. The complete file-backed
+    OpenHands event log remains untouched for restart recovery, observability,
+    debugging, and user-directed search.
+- [`openhands-sdk/openhands/sdk/agent/agent.py`](openhands-sdk/openhands/sdk/agent/agent.py)
+  - Disables the local OpenHands condenser while native Anthropic compaction is
+    active, preventing two independent summaries from competing.
+
+Tests:
+
+- [`tests/sdk/llm/test_anthropic_compaction.py`](tests/sdk/llm/test_anthropic_compaction.py)
+  covers request options, caller precedence, the actual LiteLLM Anthropic wire
+  transformation and beta header, response parsing, empty-block failure,
+  JSON and full-conversation restart recovery, parallel tool calls, outbound
+  tail selection, synchronous and asynchronous condenser gating, and
+  compaction-only response classification.
+- [`tests/sdk/agent/test_response_dispatch.py`](tests/sdk/agent/test_response_dispatch.py)
+  proves that a real agent tool-action dispatch preserves the block.
+
+Reference:
+[Anthropic context compaction](https://platform.claude.com/docs/en/build-with-claude/compaction).
 
 ### Optional Laminar observability dependency — 2026-07-30 13:29:29 +01:00 — [`527771ce`](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce74d68e2e031649cbb4eb9ebde6b5cf69)
 
@@ -239,25 +319,6 @@ Tests:
   covers default and one-hour text/image/tool controls, disabled caching, and
   unsupported values.
 
-## Anthropic context and reasoning assessment
-
-Anthropic's Messages API is stateless: there is no `previous_response_id`
-equivalent. The caller resends conversation messages. OpenHands already
-preserves Anthropic `thinking` and `redacted_thinking` blocks in `Message`,
-`ActionEvent`, and the durable event log, then serializes those blocks back on
-subsequent tool-use turns. Senpai's `xhigh` reasoning effort is translated by
-LiteLLM to adaptive thinking plus the provider effort setting for current
-Claude models.
-
-Anthropic also offers server-side compaction through the
-`compact-2026-01-12` beta. Its returned `compaction` content block must be
-round-tripped on every later request. The current OpenHands `Message` model
-represents thinking blocks but not Anthropic compaction blocks. This fork
-therefore does not enable Anthropic server compaction yet: forwarding the
-request without preserving the returned block would silently lose the state
-the provider says must be replayed. A safe implementation must first add typed
-compaction-block parsing, durable event storage, exact serialization, and
-restart tests. Until then Anthropic keeps the high-quality OpenHands condenser.
 
 Primary provider references:
 
