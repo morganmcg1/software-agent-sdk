@@ -15,9 +15,9 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`da7d76fe`](https://github.com/morganmcg1/software-agent-sdk/commit/da7d76fe3d0b0f5b169ff47c5617a8ecf38a004c)
-- SDK and test divergence at that commit: 20 files changed, 627 insertions,
-  and 48 deletions.
+  [`527771ce`](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce74d68e2e031649cbb4eb9ebde6b5cf69)
+- Repository divergence at that commit: 24 files changed, 922 insertions,
+  and 79 deletions.
 
 All runtime changes are confined to `openhands-sdk`; this fork does not change
 `openhands-tools` behavior.
@@ -32,6 +32,32 @@ git diff upstream/main...main
 ```
 
 ## Intentional changes
+
+### Optional Laminar observability dependency — 2026-07-30 13:29:29 +01:00 — [`527771ce`](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce74d68e2e031649cbb4eb9ebde6b5cf69)
+
+Purpose: keep the base SDK install provider-neutral and avoid installing a
+second telemetry stack in applications, such as Senpai, that use another
+observability integration.
+
+Implementation:
+
+- [`openhands-sdk/pyproject.toml`](openhands-sdk/pyproject.toml)
+  - `lmnr` moved from required dependencies to the `laminar` optional extra.
+  - Existing Laminar behavior remains available with
+    `openhands-sdk[laminar]`.
+  - No runtime fallback was added. The existing lazy imports mean an
+    application that does not enable Laminar does not import it; an
+    application that enables Laminar must install the extra.
+- [`uv.lock`](uv.lock)
+  - Records Laminar as an optional SDK dependency instead of a base
+    requirement.
+
+Tests:
+
+- The existing 36 Laminar observability tests pass with the optional extra
+  present.
+- Package metadata was checked to ensure `lmnr` is absent from base
+  dependencies and present under the `laminar` extra.
 
 ### Explicit Responses stable-prefix cache breakpoint — updated 2026-07-30 13:18:15 +01:00 — [`aac9673f`](https://github.com/morganmcg1/software-agent-sdk/commit/aac9673f49a5a9e21e494b127df5bca923e7d8d7), [`da7d76fe`](https://github.com/morganmcg1/software-agent-sdk/commit/da7d76fe3d0b0f5b169ff47c5617a8ecf38a004c)
 
