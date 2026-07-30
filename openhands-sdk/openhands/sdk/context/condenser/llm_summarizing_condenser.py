@@ -18,7 +18,7 @@ from openhands.sdk.context.prompts import render_template
 from openhands.sdk.context.view import View
 from openhands.sdk.event.base import LLMConvertibleEvent
 from openhands.sdk.event.condenser import Condensation
-from openhands.sdk.llm import LLM, Message, TextContent
+from openhands.sdk.llm import LLM, LLMResponse, Message, TextContent
 from openhands.sdk.logger import get_logger
 from openhands.sdk.observability.laminar import observe
 from openhands.sdk.utils import maybe_truncate
@@ -92,6 +92,26 @@ class LLMSummarizingCondenser(RollingCondenser):
 
     def handles_condensation_requests(self) -> bool:
         return True
+
+    def _complete_summary(self, messages: list[Message]) -> LLMResponse:
+        if self.llm.uses_responses_api():
+            return self.llm.responses(
+                messages=messages,
+                tools=[],
+                include=None,
+                store=False,
+            )
+        return self.llm.completion(messages=messages)
+
+    async def _acomplete_summary(self, messages: list[Message]) -> LLMResponse:
+        if self.llm.uses_responses_api():
+            return await self.llm.aresponses(
+                messages=messages,
+                tools=[],
+                include=None,
+                store=False,
+            )
+        return await self.llm.acompletion(messages=messages)
 
     def get_condensation_reasons(
         self, view: View, agent_llm: LLM | None = None
@@ -198,12 +218,8 @@ class LLMSummarizingCondenser(RollingCondenser):
 
         messages = [Message(role="user", content=[TextContent(text=prompt)])]
 
-        # Do not pass extra_body explicitly. The LLM handles forwarding
-        # litellm_extra_body only when it is non-empty.
         try:
-            llm_response = self.llm.completion(
-                messages=messages,
-            )
+            llm_response = self._complete_summary(messages)
         except Exception as e:
             raise NoCondensationAvailableException(
                 f"Summarization LLM call failed: {e}"
@@ -395,7 +411,7 @@ class LLMSummarizingCondenser(RollingCondenser):
 
         messages = [Message(role="user", content=[TextContent(text=prompt)])]
         try:
-            llm_response = await self.llm.acompletion(messages=messages)
+            llm_response = await self._acomplete_summary(messages)
         except Exception as e:
             raise NoCondensationAvailableException(
                 f"Summarization LLM call failed: {e}"

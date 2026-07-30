@@ -60,6 +60,8 @@ def mock_llm() -> LLM:
     mock_llm.completion.return_value = create_completion_result(
         "Summary of forgotten events"
     )
+    mock_llm.responses.return_value = mock_llm.completion.return_value
+    mock_llm.uses_responses_api.return_value = False
     mock_llm.format_messages_for_llm = lambda messages: messages
 
     # Mock the required attributes that the LLM validator reads
@@ -116,6 +118,40 @@ def test_default_values(mock_llm: LLM) -> None:
     # Default keep_first should be 2 (reduced from 4 to leave more room for
     # condensation)
     assert condenser.keep_first == 2
+
+
+def test_summarization_uses_responses_api_when_configured(mock_llm: LLM) -> None:
+    cast(MagicMock, mock_llm.uses_responses_api).return_value = True
+    condenser = LLMSummarizingCondenser(llm=mock_llm, max_size=10, keep_first=2)
+
+    events: list[Event] = [message_event(f"Event {i}") for i in range(12)]
+    result = condenser.get_condensation(View.from_events(events))
+
+    assert result.summary == "Summary of forgotten events"
+    responses_mock = cast(MagicMock, mock_llm.responses)
+    responses_mock.assert_called_once()
+    assert responses_mock.call_args.kwargs["tools"] == []
+    assert responses_mock.call_args.kwargs["include"] is None
+    assert responses_mock.call_args.kwargs["store"] is False
+    cast(MagicMock, mock_llm.completion).assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_summarization_uses_responses_api_when_configured(
+    mock_llm: LLM,
+) -> None:
+    cast(MagicMock, mock_llm.uses_responses_api).return_value = True
+    cast(AsyncMock, mock_llm.aresponses).return_value = cast(
+        MagicMock, mock_llm.completion
+    ).return_value
+    condenser = LLMSummarizingCondenser(llm=mock_llm, max_size=10, keep_first=2)
+
+    events: list[Event] = [message_event(f"Event {i}") for i in range(12)]
+    result = await condenser.aget_condensation(View.from_events(events))
+
+    assert result.summary == "Summary of forgotten events"
+    cast(AsyncMock, mock_llm.aresponses).assert_awaited_once()
+    cast(MagicMock, mock_llm.acompletion).assert_not_called()
 
 
 def test_should_condense(mock_llm: LLM) -> None:
