@@ -159,6 +159,8 @@ PROMPT_CACHE_MODELS: list[str] = [
 PROMPT_CACHE_RETENTION_MODELS: list[str] = [
     # Broad allow for GPT-5 family (covers gpt-5.2 and variants)
     "gpt-5",
+    # GPT-5.6 replaced this field with prompt_cache_options.ttl
+    "!gpt-5.6",
     # Allow GPT-4.1 for OpenAI/LiteLLM-style identifiers
     "gpt-4.1",
     # Exclude all mini variants by default

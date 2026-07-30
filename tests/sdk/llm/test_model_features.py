@@ -500,6 +500,8 @@ def test_force_string_serializer_full_model_names():
         ("gpt-5.2-codex", True),
         ("openai/gpt-5.2-chat-latest", True),
         ("openai/gpt-5.2-pro", True),
+        ("openai/gpt-5.6", False),
+        ("openai/gpt-5.6-sol", False),
         ("openai/gpt-5-mini", False),
         ("gpt-4o", False),
         ("openai/gpt-4.1", True),
