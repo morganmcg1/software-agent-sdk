@@ -15,8 +15,8 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`afb3639c`](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c0e7846f25e33b10302b02611fcd72a3f)
-- Repository divergence at that commit: 31 files changed, 1,497 insertions,
+  [`afe77a78`](https://github.com/morganmcg1/software-agent-sdk/commit/afe77a787ffb6d14e8db60d1c6b72b5dcebbe90e)
+- Repository divergence at that commit: 36 files changed, 1,629 insertions,
   and 79 deletions.
 
 All runtime changes are confined to `openhands-sdk`; this fork does not change
@@ -32,6 +32,29 @@ git diff upstream/main...main
 ```
 
 ## Intentional changes
+
+### File-agent reasoning effort — 2026-07-30 17:03:40 +01:00 — [`afe77a78`](https://github.com/morganmcg1/software-agent-sdk/commit/afe77a787ffb6d14e8db60d1c6b72b5dcebbe90e)
+
+Purpose: let a Markdown agent definition select its own reasoning effort
+without requiring a programmatic factory or a complete stored LLM profile.
+
+Implementation:
+
+- [`openhands-sdk/openhands/sdk/subagent/schema.py`](openhands-sdk/openhands/sdk/subagent/schema.py)
+  - `AgentDefinition.reasoning_effort` is a typed optional field.
+  - `reasoning_effort: inherit` and an omitted value preserve the parent LLM
+    setting.
+  - Any other provider-supported string is retained as the agent override.
+- [`openhands-sdk/openhands/sdk/subagent/registry.py`](openhands-sdk/openhands/sdk/subagent/registry.py)
+  - `agent_definition_to_factory()` applies the override after resolving the
+    agent's inherited LLM or stored model profile.
+
+Tests:
+
+- [`tests/sdk/subagent/test_subagent_schema.py`](tests/sdk/subagent/test_subagent_schema.py)
+  covers explicit and inherited frontmatter values.
+- [`tests/sdk/subagent/test_subagent_registry.py`](tests/sdk/subagent/test_subagent_registry.py)
+  proves that the factory copies the parent LLM and applies the child effort.
 
 ### Durable Anthropic server-side compaction — 2026-07-30 14:01:19 +01:00 — [`afb3639c`](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c0e7846f25e33b10302b02611fcd72a3f)
 
