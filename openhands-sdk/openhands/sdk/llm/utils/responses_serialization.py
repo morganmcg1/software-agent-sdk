@@ -13,6 +13,22 @@ from openhands.sdk.llm.message import (
 )
 
 
+def system_message_to_responses_item(
+    message: Message, *, prompt_cache_breakpoint: bool
+) -> dict[str, Any] | None:
+    """Serialize a system message so one stable block can be cached explicitly."""
+    content = [
+        {"type": "input_text", "text": item.text}
+        for item in message.content
+        if isinstance(item, TextContent) and item.text
+    ]
+    if not content:
+        return None
+    if prompt_cache_breakpoint:
+        content[0]["prompt_cache_breakpoint"] = {"mode": "explicit"}
+    return {"type": "message", "role": "system", "content": content}
+
+
 def message_to_responses_dict(
     message: Message, *, vision_enabled: bool
 ) -> list[dict[str, Any]]:

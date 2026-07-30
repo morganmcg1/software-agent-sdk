@@ -573,6 +573,15 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         ),
         json_schema_extra=field_meta(),
     )
+    responses_prompt_cache_breakpoint: bool = Field(
+        default=False,
+        description=(
+            "Serialize the first system text block as an explicit OpenAI Responses "
+            "prompt-cache breakpoint. Callers must also select explicit prompt-cache "
+            "mode in prompt_cache_options."
+        ),
+        json_schema_extra=field_meta(),
+    )
     prompt_cache_ttl: PromptCacheTTL = Field(
         default="5m",
         description=(
@@ -2789,8 +2798,27 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         instructions: str | None = None
         input_items: list[dict[str, Any]] = []
         system_chunks: list[str] = []
+        cache_breakpoint_available = self.responses_prompt_cache_breakpoint
 
         for m in msgs:
+            if (
+                m.role == "system"
+                and self.responses_prompt_cache_breakpoint
+                and not self.is_subscription
+            ):
+                from openhands.sdk.llm.utils.responses_serialization import (
+                    system_message_to_responses_item,
+                )
+
+                item = system_message_to_responses_item(
+                    m,
+                    prompt_cache_breakpoint=cache_breakpoint_available,
+                )
+                if item is not None:
+                    input_items.append(item)
+                    cache_breakpoint_available = False
+                continue
+
             val = m.to_responses_value(vision_enabled=vision_active)
             if isinstance(val, str):
                 s = val.strip()
@@ -2815,10 +2843,10 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     ) -> tuple[str | None, list[dict[str, Any]]]:
         """Prepare (instructions, input[]) for the OpenAI Responses API.
 
-        - Skips prompt caching flags and string serializer concerns
+        - Optionally marks the first system text block as an explicit cache breakpoint
         - Uses Message.to_responses_value to get either instructions (system)
           or input items (others)
-        - Concatenates system instructions into a single instructions string
+        - Otherwise concatenates system instructions into one instructions string
         - For subscription mode, system prompts are prepended to user content
         - Inlines http(s) image URLs as base64 when the active model requires it
         """

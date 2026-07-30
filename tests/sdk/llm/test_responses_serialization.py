@@ -50,6 +50,65 @@ def test_system_to_responses_value_instructions_concat():
     assert inputs == []
 
 
+def test_explicit_prompt_cache_breakpoint_marks_only_stable_system_block():
+    system = Message(
+        role="system",
+        content=[
+            TextContent(text="stable system prefix"),
+            TextContent(text="dynamic context"),
+        ],
+    )
+    user = Message(role="user", content=[TextContent(text="hello")])
+    llm = LLM(
+        model="gpt-5.6",
+        responses_prompt_cache_breakpoint=True,
+    )
+
+    instructions, inputs = llm.format_messages_for_responses([system, user])
+
+    assert instructions is None
+    assert inputs == [
+        {
+            "type": "message",
+            "role": "system",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": "stable system prefix",
+                    "prompt_cache_breakpoint": {"mode": "explicit"},
+                },
+                {"type": "input_text", "text": "dynamic context"},
+            ],
+        },
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        },
+    ]
+
+
+def test_explicit_prompt_cache_breakpoint_marks_only_first_system_message():
+    first = Message(role="system", content=[TextContent(text="stable")])
+    second = Message(role="system", content=[TextContent(text="later")])
+    llm = LLM(
+        model="gpt-5.6",
+        responses_prompt_cache_breakpoint=True,
+    )
+
+    instructions, inputs = llm.format_messages_for_responses([first, second])
+
+    assert instructions is None
+    assert inputs[0]["content"][0]["prompt_cache_breakpoint"] == {
+        "mode": "explicit"
+    }
+    assert inputs[1] == {
+        "type": "message",
+        "role": "system",
+        "content": [{"type": "input_text", "text": "later"}],
+    }
+
+
 def test_subscription_codex_transport_does_not_use_top_level_instructions_and_prepend_system_to_user():  # noqa: E501
     m_sys = Message(role="system", content=[TextContent(text="SYS")])
     m_user = Message(role="user", content=[TextContent(text="USER")])
