@@ -99,9 +99,7 @@ def test_explicit_prompt_cache_breakpoint_marks_only_first_system_message():
     instructions, inputs = llm.format_messages_for_responses([first, second])
 
     assert instructions is None
-    assert inputs[0]["content"][0]["prompt_cache_breakpoint"] == {
-        "mode": "explicit"
-    }
+    assert inputs[0]["content"][0]["prompt_cache_breakpoint"] == {"mode": "explicit"}
     assert inputs[1] == {
         "type": "message",
         "role": "system",

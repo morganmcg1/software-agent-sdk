@@ -715,9 +715,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         model_val = d.get("model")
         if not model_val:
             raise ValueError("model must be specified in LLM")
-        if d.get("responses_use_previous_response_id") and not d.get(
-            "responses_store"
-        ):
+        if d.get("responses_use_previous_response_id") and not d.get("responses_store"):
             raise ValueError(
                 "responses_use_previous_response_id requires responses_store=True"
             )

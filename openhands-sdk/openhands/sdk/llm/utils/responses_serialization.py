@@ -17,7 +17,7 @@ def system_message_to_responses_item(
     message: Message, *, prompt_cache_breakpoint: bool
 ) -> dict[str, Any] | None:
     """Serialize a system message so one stable block can be cached explicitly."""
-    content = [
+    content: list[dict[str, Any]] = [
         {"type": "input_text", "text": item.text}
         for item in message.content
         if isinstance(item, TextContent) and item.text
