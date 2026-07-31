@@ -15,9 +15,9 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`afe77a78`](https://github.com/morganmcg1/software-agent-sdk/commit/afe77a787ffb6d14e8db60d1c6b72b5dcebbe90e)
-- Repository divergence at that commit: 36 files changed, 1,629 insertions,
-  and 79 deletions.
+  [`479e4cf0`](https://github.com/morganmcg1/software-agent-sdk/commit/479e4cf0d4055a0713c43842acb99c4541826e60)
+- Repository divergence at that commit: 38 files changed, 1,707 insertions,
+  and 80 deletions.
 
 All runtime changes are confined to `openhands-sdk`; this fork does not change
 `openhands-tools` behavior.
@@ -32,6 +32,27 @@ git diff upstream/main...main
 ```
 
 ## Intentional changes
+
+### Discriminated tool schemas — 2026-07-31 11:13:57 +01:00 — [`479e4cf0`](https://github.com/morganmcg1/software-agent-sdk/commit/479e4cf0d4055a0713c43842acb99c4541826e60)
+
+Purpose: preserve every typed branch of a Pydantic discriminated union in the
+schema shown to an LLM. Upstream's MCP simplifier discarded `oneOf`, reducing a
+field such as Senpai's `github_transition.transition` to an untyped object and
+forcing the model to guess operation names, fields, and nested payloads.
+
+Implementation:
+
+- [`openhands-sdk/openhands/sdk/tool/schema.py`](openhands-sdk/openhands/sdk/tool/schema.py)
+  - `_process_schema_node()` recursively expands and retains every `oneOf`
+    branch while continuing to resolve `$ref` definitions.
+  - Pydantic `const` values become single-value enums, keeping each branch's
+    discriminator visible to all supported tool-schema consumers.
+
+Tests:
+
+- [`tests/sdk/tool/test_mcp_schema.py`](tests/sdk/tool/test_mcp_schema.py)
+  proves that both branches, discriminator values, required fields, nested
+  descriptions, and resolved references survive `Action.to_mcp_schema()`.
 
 ### File-agent reasoning effort — 2026-07-30 17:03:40 +01:00 — [`afe77a78`](https://github.com/morganmcg1/software-agent-sdk/commit/afe77a787ffb6d14e8db60d1c6b72b5dcebbe90e)
 
