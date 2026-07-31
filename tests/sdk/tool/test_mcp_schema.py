@@ -122,26 +122,71 @@ def test_complex_action_to_mcp_schema_excludes_kind():
     assert schema["properties"]["string_list"]["type"] == "array"
 
 
-def test_discriminated_union_keeps_each_typed_branch():
+def test_discriminated_union_flattens_to_one_typed_object():
     schema = MCPDiscriminatedUnionAction.to_mcp_schema()
 
     transition = schema["properties"]["transition"]
-    variants = transition["oneOf"]
-    by_operation = {
-        variant["properties"]["operation"]["enum"][0]: variant for variant in variants
-    }
 
-    assert transition["description"] == "Operation to perform"
-    assert set(by_operation) == {"read", "write"}
-    assert by_operation["read"]["required"] == ["operation", "path"]
-    assert by_operation["read"]["properties"]["path"]["description"] == ("File to read")
-    assert by_operation["write"]["required"] == [
-        "operation",
-        "path",
-        "content",
-    ]
+    assert transition == {
+        "type": "object",
+        "description": "Operation to perform",
+        "properties": {
+            "operation": {"type": "string", "enum": ["read", "write"]},
+            "path": {
+                "type": "string",
+                "description": "File to read / File to write",
+            },
+            "content": {"type": "string", "description": "New file content"},
+        },
+        "required": ["operation", "path"],
+    }
+    assert "oneOf" not in json.dumps(schema)
     assert "$ref" not in json.dumps(schema)
     assert "$defs" not in schema
+
+
+def test_flattened_union_keeps_incompatible_property_types_unconstrained():
+    result = _process_schema_node(
+        {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"const": "text", "type": "string"},
+                        "value": {"type": "string", "description": "Text value"},
+                    },
+                    "required": ["operation", "value"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"const": "count", "type": "string"},
+                        "value": {"type": "integer", "description": "Count value"},
+                    },
+                    "required": ["operation", "value"],
+                },
+            ]
+        },
+        {},
+    )
+
+    assert result["properties"]["operation"] == {
+        "type": "string",
+        "enum": ["text", "count"],
+    }
+    assert result["properties"]["value"] == {"description": "Text value / Count value"}
+    assert result["required"] == ["operation", "value"]
+
+
+def test_flattened_schema_does_not_weaken_runtime_union_validation():
+    MCPDiscriminatedUnionAction.model_validate(
+        {"transition": {"operation": "read", "path": "README.md"}}
+    )
+
+    with pytest.raises(ValueError):
+        MCPDiscriminatedUnionAction.model_validate(
+            {"transition": {"operation": "write", "path": "README.md"}}
+        )
 
 
 def test_mcp_schema_structure():

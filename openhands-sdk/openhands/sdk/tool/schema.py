@@ -68,6 +68,77 @@ def _shallow_expand_circular_ref(ref_def: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _merge_union_property_schemas(
+    schemas: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Merge schemas for one property without excluding a valid union branch."""
+    if len(schemas) == 1:
+        return schemas[0]
+
+    result: dict[str, Any] = {}
+    first_type = schemas[0].get("type")
+    if first_type is not None and all(
+        schema.get("type") == first_type for schema in schemas
+    ):
+        result["type"] = first_type
+
+    descriptions = list(
+        dict.fromkeys(
+            description
+            for schema in schemas
+            if (description := schema.get("description"))
+        )
+    )
+    if descriptions:
+        result["description"] = " / ".join(descriptions)
+
+    if all(isinstance(schema.get("enum"), list) for schema in schemas):
+        result["enum"] = []
+        for schema in schemas:
+            for value in schema["enum"]:
+                if value not in result["enum"]:
+                    result["enum"].append(value)
+
+    common_keys = set.intersection(*(set(schema) for schema in schemas))
+    for key in schemas[0]:
+        if key not in common_keys or key in result:
+            continue
+        values_match = all(schema[key] == schemas[0][key] for schema in schemas)
+        if values_match:
+            result[key] = schemas[0][key]
+
+    return result
+
+
+def _flatten_object_union(variants: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Expose an object union as one provider-compatible object schema.
+
+    Branch-specific requirements remain authoritative in the Pydantic action
+    model. The LLM-facing schema requires only fields shared by every branch.
+    """
+    if not variants or any(variant.get("type") != "object" for variant in variants):
+        return None
+
+    properties_by_name: dict[str, list[dict[str, Any]]] = {}
+    for variant in variants:
+        for name, schema in variant.get("properties", {}).items():
+            properties_by_name.setdefault(name, []).append(schema)
+
+    result: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            name: _merge_union_property_schemas(schemas)
+            for name, schemas in properties_by_name.items()
+        },
+    }
+    required = set(variants[0].get("required", []))
+    for variant in variants[1:]:
+        required &= set(variant.get("required", []))
+    if required:
+        result["required"] = [name for name in properties_by_name if name in required]
+    return result
+
+
 def _process_schema_node(
     node: dict[str, Any] | bool,
     defs: dict[str, Any],
@@ -148,13 +219,15 @@ def _process_schema_node(
             processed = _process_schema_node(non_null_types[0], defs, _visiting)
             result.update(processed)
 
-    # Preserve discriminated unions. Pydantic emits these as oneOf branches;
-    # dropping them leaves the model with an untyped object and no way to form
-    # a valid tool call.
+    # Models reliably emit nested tool objects when object unions are flattened.
+    # Runtime Pydantic validation still enforces each branch's full contract.
     if "oneOf" in node:
-        result["oneOf"] = [
+        variants = [
             _process_schema_node(option, defs, _visiting) for option in node["oneOf"]
         ]
+        flattened = _flatten_object_union(variants)
+        if flattened is not None:
+            result.update(flattened)
 
     # Handle description
     if "description" in node:
