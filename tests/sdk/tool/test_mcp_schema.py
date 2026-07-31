@@ -2,9 +2,10 @@
 
 import json
 from collections.abc import Sequence
+from typing import Annotated, Literal
 
 import pytest
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from openhands.sdk.llm import ImageContent, TextContent
 from openhands.sdk.tool.schema import Action, Observation, Schema, _process_schema_node
@@ -23,6 +24,24 @@ class MCPComplexAction(Action):
     simple_field: str = Field(description="Simple string field")
     optional_int: int | None = Field(default=None, description="Optional integer")
     string_list: list[str] = Field(default_factory=list, description="List of strings")
+
+
+class ReadOperation(BaseModel):
+    operation: Literal["read"]
+    path: str = Field(description="File to read")
+
+
+class WriteOperation(BaseModel):
+    operation: Literal["write"]
+    path: str = Field(description="File to write")
+    content: str = Field(description="New file content")
+
+
+class MCPDiscriminatedUnionAction(Action):
+    transition: Annotated[
+        ReadOperation | WriteOperation,
+        Field(discriminator="operation", description="Operation to perform"),
+    ]
 
 
 class MCPSchemaTestObservation(Observation):
@@ -101,6 +120,28 @@ def test_complex_action_to_mcp_schema_excludes_kind():
     assert schema["properties"]["simple_field"]["type"] == "string"
     assert schema["properties"]["optional_int"]["type"] == "integer"
     assert schema["properties"]["string_list"]["type"] == "array"
+
+
+def test_discriminated_union_keeps_each_typed_branch():
+    schema = MCPDiscriminatedUnionAction.to_mcp_schema()
+
+    transition = schema["properties"]["transition"]
+    variants = transition["oneOf"]
+    by_operation = {
+        variant["properties"]["operation"]["enum"][0]: variant for variant in variants
+    }
+
+    assert transition["description"] == "Operation to perform"
+    assert set(by_operation) == {"read", "write"}
+    assert by_operation["read"]["required"] == ["operation", "path"]
+    assert by_operation["read"]["properties"]["path"]["description"] == ("File to read")
+    assert by_operation["write"]["required"] == [
+        "operation",
+        "path",
+        "content",
+    ]
+    assert "$ref" not in json.dumps(schema)
+    assert "$defs" not in schema
 
 
 def test_mcp_schema_structure():

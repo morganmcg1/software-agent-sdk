@@ -148,6 +148,14 @@ def _process_schema_node(
             processed = _process_schema_node(non_null_types[0], defs, _visiting)
             result.update(processed)
 
+    # Preserve discriminated unions. Pydantic emits these as oneOf branches;
+    # dropping them leaves the model with an untyped object and no way to form
+    # a valid tool call.
+    if "oneOf" in node:
+        result["oneOf"] = [
+            _process_schema_node(option, defs, _visiting) for option in node["oneOf"]
+        ]
+
     # Handle description
     if "description" in node:
         result["description"] = node["description"]
@@ -175,6 +183,11 @@ def _process_schema_node(
     # Handle enum
     if "enum" in node:
         result["enum"] = node["enum"]
+
+    # Literal discriminator values are emitted as const. A one-value enum is
+    # understood by the tool-schema consumers supported by the SDK.
+    if "const" in node:
+        result["enum"] = [node["const"]]
 
     return result
 
