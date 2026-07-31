@@ -15,8 +15,8 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`479e4cf0`](https://github.com/morganmcg1/software-agent-sdk/commit/479e4cf0d4055a0713c43842acb99c4541826e60)
-- Repository divergence at that commit: 38 files changed, 1,707 insertions,
+  [`d093d0cc`](https://github.com/morganmcg1/software-agent-sdk/commit/d093d0cc7dc710c3f45624a677d6112abb899814)
+- Repository divergence at that commit: 38 files changed, 1,846 insertions,
   and 80 deletions.
 
 All runtime changes are confined to `openhands-sdk`; this fork does not change
@@ -33,26 +33,39 @@ git diff upstream/main...main
 
 ## Intentional changes
 
-### Discriminated tool schemas — 2026-07-31 11:13:57 +01:00 — [`479e4cf0`](https://github.com/morganmcg1/software-agent-sdk/commit/479e4cf0d4055a0713c43842acb99c4541826e60)
+### Provider-compatible discriminated tool schemas — 2026-07-31 11:29:52 +01:00 — [`d093d0cc`](https://github.com/morganmcg1/software-agent-sdk/commit/d093d0cc7dc710c3f45624a677d6112abb899814), [`479e4cf0`](https://github.com/morganmcg1/software-agent-sdk/commit/479e4cf0d4055a0713c43842acb99c4541826e60)
 
-Purpose: preserve every typed branch of a Pydantic discriminated union in the
-schema shown to an LLM. Upstream's MCP simplifier discarded `oneOf`, reducing a
-field such as Senpai's `github_transition.transition` to an untyped object and
-forcing the model to guess operation names, fields, and nested payloads.
+Purpose: expose every field and discriminator value from a Pydantic object
+union in a form that both Anthropic and OpenAI models can populate. Upstream's
+MCP simplifier discarded `oneOf`, reducing a field such as Senpai's
+`github_transition.transition` to an untyped object. The first fork revision
+retained `oneOf`, but a direct Anthropic tool-use smoke test showed that Claude
+serialized the nested object as a JSON string whenever `oneOf` remained.
 
 Implementation:
 
 - [`openhands-sdk/openhands/sdk/tool/schema.py`](openhands-sdk/openhands/sdk/tool/schema.py)
-  - `_process_schema_node()` recursively expands and retains every `oneOf`
-    branch while continuing to resolve `$ref` definitions.
-  - Pydantic `const` values become single-value enums, keeping each branch's
-    discriminator visible to all supported tool-schema consumers.
+  - `_process_schema_node()` recursively resolves every object-union branch,
+    then presents the LLM with one ordinary object containing the union of its
+    properties.
+  - Pydantic `const` values become single-value enums; discriminator enums are
+    combined deterministically.
+  - A field is marked required only when every branch requires it. Compatible
+    types and constraints are retained; incompatible types are left
+    unconstrained instead of publishing a false contract.
+  - The original Pydantic action remains authoritative after generation, so
+    branch-specific required fields and extra-field rejection are unchanged.
 
 Tests:
 
 - [`tests/sdk/tool/test_mcp_schema.py`](tests/sdk/tool/test_mcp_schema.py)
-  proves that both branches, discriminator values, required fields, nested
-  descriptions, and resolved references survive `Action.to_mcp_schema()`.
+  proves that fields, merged discriminator values, shared required fields,
+  descriptions, and resolved references survive `Action.to_mcp_schema()`, and
+  that runtime union validation remains strict.
+- Live direct-provider smoke tests used Senpai's complete eight-operation
+  `github_transition` schema. Anthropic Claude Haiku 4.5 and OpenAI Responses
+  GPT-5.4 both returned the requested nested `push_branch` object with the
+  correct types. These calls bypassed LiteLLM for provider isolation.
 
 ### File-agent reasoning effort — 2026-07-30 17:03:40 +01:00 — [`afe77a78`](https://github.com/morganmcg1/software-agent-sdk/commit/afe77a787ffb6d14e8db60d1c6b72b5dcebbe90e)
 
