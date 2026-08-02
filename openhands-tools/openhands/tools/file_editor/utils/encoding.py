@@ -49,6 +49,16 @@ class EncodingManager:
         with open(path, "rb") as f:
             raw_data = f.read(sample_size)
 
+        # UTF-8 is self-validating. Prefer it whenever the bytes are valid so a
+        # statistical detector cannot reinterpret an existing UTF-8 file as a
+        # legacy single-byte encoding and silently rewrite every non-ASCII byte.
+        try:
+            raw_data.decode(self.default_encoding)
+        except UnicodeDecodeError:
+            pass
+        else:
+            return self.default_encoding
+
         # Use charset_normalizer instead of chardet
         results = charset_normalizer.detect(raw_data)
 
