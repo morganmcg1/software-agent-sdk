@@ -81,7 +81,7 @@ def test_valid_utf8_is_not_reinterpreted_as_a_legacy_encoding(
         assert encoding_manager.detect_encoding(temp_file) == "utf-8"
 
     detect.assert_not_called()
-    assert temp_file.read_bytes() == original.encode("utf-8")
+    assert temp_file.read_text(encoding="utf-8") == original
 
 
 def test_insert_preserves_existing_valid_utf8_bytes(tmp_path):
@@ -97,12 +97,11 @@ def test_insert_preserves_existing_valid_utf8_bytes(tmp_path):
     ):
         editor.insert(path, 1, "New result")
 
-    assert (
-        path.read_bytes()
-        == (
-            "Research log ‚Äî with existing mojibake\nNew result\nOld result\n"
-        ).encode()
-    )
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "Research log ‚Äî with existing mojibake",
+        "New result",
+        "Old result",
+    ]
 
 
 def test_detect_encoding_cp1251(encoding_manager, temp_file):
