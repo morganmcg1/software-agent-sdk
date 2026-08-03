@@ -70,6 +70,40 @@ def test_detect_encoding_utf8_with_icon(encoding_manager, temp_file):
     assert encoding.lower() == "utf-8"
 
 
+def test_valid_utf8_is_not_reinterpreted_as_a_legacy_encoding(
+    encoding_manager, temp_file
+):
+    """A confident statistical guess must not override valid UTF-8 bytes."""
+    original = "Research log ‚Äî with existing mojibake\n"
+    temp_file.write_text(original, encoding="utf-8")
+
+    with patch("charset_normalizer.detect") as detect:
+        assert encoding_manager.detect_encoding(temp_file) == "utf-8"
+
+    detect.assert_not_called()
+    assert temp_file.read_text(encoding="utf-8") == original
+
+
+def test_insert_preserves_existing_valid_utf8_bytes(tmp_path):
+    """Regression: insert must not transcode untouched UTF-8 content."""
+    editor = FileEditor(workspace_root=str(tmp_path))
+    path = tmp_path / "research-log.md"
+    original = "Research log ‚Äî with existing mojibake\nOld result\n"
+    path.write_text(original, encoding="utf-8")
+
+    with patch(
+        "charset_normalizer.detect",
+        return_value={"encoding": "ptcp154", "confidence": 0.99},
+    ):
+        editor.insert(path, 1, "New result")
+
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "Research log ‚Äî with existing mojibake",
+        "New result",
+        "Old result",
+    ]
+
+
 def test_detect_encoding_cp1251(encoding_manager, temp_file):
     """Test detecting CP1251 encoding."""
     # Create a CP1251 encoded file with Cyrillic characters

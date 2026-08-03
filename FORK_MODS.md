@@ -10,17 +10,17 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 
 - Upstream repository: `https://github.com/OpenHands/software-agent-sdk.git`
 - Last incorporated upstream commit:
-  [`bf57d16f`](https://github.com/OpenHands/software-agent-sdk/commit/bf57d16f)
-  (`v1.39.1`)
+  [`2f276539`](https://github.com/OpenHands/software-agent-sdk/commit/2f276539)
+  (`v1.40.0`)
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`d093d0cc`](https://github.com/morganmcg1/software-agent-sdk/commit/d093d0cc7dc710c3f45624a677d6112abb899814)
-- Repository divergence at that commit: 38 files changed, 1,846 insertions,
+  [`e44c57ce`](https://github.com/morganmcg1/software-agent-sdk/commit/e44c57ce13e57bc67b1b8977a16377ed62c36546)
+- Repository divergence at that commit: 40 files changed, 1,925 insertions,
   and 80 deletions.
 
-All runtime changes are confined to `openhands-sdk`; this fork does not change
-`openhands-tools` behavior.
+Runtime changes are confined to `openhands-sdk` and the file editor's encoding
+selection in `openhands-tools`.
 
 Reproduce the comparison locally:
 
@@ -32,6 +32,28 @@ git diff upstream/main...main
 ```
 
 ## Intentional changes
+
+### Preserve valid UTF-8 during file edits — 2026-08-02 02:16:48 +01:00 — [`06e229d2`](https://github.com/morganmcg1/software-agent-sdk/commit/06e229d2ac19dfa4bc0f7cfbda1bd79480c626dd)
+
+Purpose: prevent the statistical charset detector from confidently
+misclassifying a valid UTF-8 file as a legacy single-byte encoding and silently
+transcoding untouched content during an insert or replacement.
+
+Implementation:
+
+- [`openhands-tools/openhands/tools/file_editor/utils/encoding.py`](openhands-tools/openhands/tools/file_editor/utils/encoding.py)
+  validates UTF-8 first. Only byte sequences that are not valid UTF-8 reach
+  `charset_normalizer`, preserving support for genuine legacy encodings.
+
+Tests:
+
+- [`tests/tools/file_editor/utils/test_encoding.py`](tests/tools/file_editor/utils/test_encoding.py)
+  covers both detector selection and an end-to-end insert into a valid UTF-8
+  file containing historical mojibake. The complete 159-test file-editor suite
+  passes.
+- A live Senpai advisor caught the original whole-file re-encoding before push:
+  a 24-line research-log insertion had produced 184 additions and 160 deletions.
+  The corrected write produced exactly 24 additions and no deletions.
 
 ### Provider-compatible discriminated tool schemas — 2026-07-31 11:29:52 +01:00 — [`d093d0cc`](https://github.com/morganmcg1/software-agent-sdk/commit/d093d0cc7dc710c3f45624a677d6112abb899814), [`479e4cf0`](https://github.com/morganmcg1/software-agent-sdk/commit/479e4cf0d4055a0713c43842acb99c4541826e60)
 
