@@ -1,7 +1,7 @@
 > [!IMPORTANT]
 > This repository is a maintained OpenHands fork. See
-> **[FORK_MODS.md](FORK_MODS.md)** for the complete list of differences from
-> upstream, including implementation and test locations.
+> **[FORK_MODS.md](FORK_MODS.md)** for the major intentional differences from
+> upstream.
 
 <a name="readme-top"></a>
 
