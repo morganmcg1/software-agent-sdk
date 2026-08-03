@@ -10,13 +10,13 @@ changes, and remove it when upstream incorporates the equivalent behavior.
 
 - Upstream repository: `https://github.com/OpenHands/software-agent-sdk.git`
 - Last incorporated upstream commit:
-  [`bf57d16f`](https://github.com/OpenHands/software-agent-sdk/commit/bf57d16f)
-  (`v1.39.1`)
+  [`2f276539`](https://github.com/OpenHands/software-agent-sdk/commit/2f276539)
+  (`v1.40.0`)
 - Fork repository:
   [`morganmcg1/software-agent-sdk`](https://github.com/morganmcg1/software-agent-sdk)
 - Runtime commit described below:
-  [`06e229d2`](https://github.com/morganmcg1/software-agent-sdk/commit/06e229d2ac19dfa4bc0f7cfbda1bd79480c626dd)
-- Repository divergence at that commit: 40 files changed, 1,904 insertions,
+  [`e44c57ce`](https://github.com/morganmcg1/software-agent-sdk/commit/e44c57ce13e57bc67b1b8977a16377ed62c36546)
+- Repository divergence at that commit: 40 files changed, 1,925 insertions,
   and 80 deletions.
 
 Runtime changes are confined to `openhands-sdk` and the file editor's encoding
