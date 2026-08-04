@@ -61,21 +61,28 @@ def _responses_continuation_events(
     previous_response_id: str,
 ) -> list[LLMConvertibleEvent]:
     """Keep current instructions and inputs created after a stored response."""
-    boundary = max(
+    boundary = next(
         (
             index
             for index, event in enumerate(events)
             if isinstance(event, (ActionEvent, MessageEvent))
             and event.llm_response_id == previous_response_id
         ),
-        default=-1,
+        -1,
     )
     if boundary < 0:
         return events
     return [
         event
         for index, event in enumerate(events)
-        if isinstance(event, SystemPromptEvent) or index > boundary
+        if isinstance(event, SystemPromptEvent)
+        or (
+            index > boundary
+            and not (
+                isinstance(event, (ActionEvent, MessageEvent))
+                and event.llm_response_id == previous_response_id
+            )
+        )
     ]
 
 

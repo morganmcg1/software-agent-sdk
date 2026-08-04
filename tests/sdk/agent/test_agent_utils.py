@@ -9,11 +9,29 @@ from unittest.mock import Mock, patch
 import pytest
 from pydantic import Field
 
-from openhands.sdk.agent.utils import make_llm_completion, prepare_llm_messages
+from openhands.sdk.agent.utils import (
+    aprepare_llm_messages,
+    make_llm_completion,
+    prepare_llm_messages,
+)
 from openhands.sdk.context.condenser.base import CondenserBase
 from openhands.sdk.context.view import View
-from openhands.sdk.event import Condensation, MessageEvent
-from openhands.sdk.llm import LLM, LLMResponse, Message, TextContent
+from openhands.sdk.event import (
+    ActionEvent,
+    AgentErrorEvent,
+    Condensation,
+    MessageEvent,
+    ObservationEvent,
+)
+from openhands.sdk.event.base import LLMConvertibleEvent
+from openhands.sdk.llm import (
+    LLM,
+    LLMResponse,
+    Message,
+    MessageToolCall,
+    TextContent,
+)
+from openhands.sdk.llm.llm import LLMCallContext
 from openhands.sdk.tool import Action, Observation, ToolDefinition
 
 
@@ -107,6 +125,63 @@ class MockAgentUtilsTool(
     @classmethod
     def create(cls, conv_state=None, **params):
         return [cls(**params)]
+
+
+def action_event(call_id: str, response_id: str, *, executable: bool) -> ActionEvent:
+    tool_call = MessageToolCall(
+        id=call_id,
+        responses_item_id=f"fc_{call_id}",
+        name="mock_tool",
+        arguments='{"param1":"value"}',
+        origin="responses",
+    )
+    return ActionEvent(
+        thought=[],
+        action=MockAgentUtilsAction(param1="value") if executable else None,
+        tool_name="mock_tool",
+        tool_call_id=call_id,
+        tool_call=tool_call,
+        llm_response_id=response_id,
+    )
+
+
+def responses_output_call_ids(messages: list[Message]) -> list[str]:
+    return [
+        item["call_id"]
+        for message in messages
+        for item in message.to_responses_dict(vision_enabled=False)
+        if item["type"] == "function_call_output"
+    ]
+
+
+@pytest.fixture
+def stored_responses_llm() -> LLM:
+    return LLM(
+        model="openai/gpt-5.1",
+        usage_id="stored-responses-test",
+        api_mode="responses",
+        responses_store=True,
+        responses_use_previous_response_id=True,
+    )
+
+
+@pytest.fixture
+def interleaved_tool_errors() -> tuple[str, list[LLMConvertibleEvent]]:
+    response_id = "resp_parallel_validation"
+    events: list[LLMConvertibleEvent] = []
+    for index in range(3):
+        call_id = f"call_{index}"
+        events.extend(
+            [
+                action_event(call_id, response_id, executable=False),
+                AgentErrorEvent(
+                    error=f"invalid call {index}",
+                    tool_name="mock_tool",
+                    tool_call_id=call_id,
+                ),
+            ]
+        )
+    return response_id, events
 
 
 @pytest.fixture
@@ -250,6 +325,69 @@ def test_prepare_llm_messages_does_not_rebuild_view(monkeypatch, sample_events) 
     assert enforce_calls == 0, (
         "prepare_llm_messages must not call enforce_properties on the hot path"
     )
+
+
+def test_prepare_stored_response_keeps_interleaved_tool_errors(
+    stored_responses_llm: LLM,
+    interleaved_tool_errors: tuple[str, list[LLMConvertibleEvent]],
+) -> None:
+    response_id, events = interleaved_tool_errors
+
+    messages = prepare_llm_messages(
+        View(events=events),
+        llm=stored_responses_llm,
+        call_context=LLMCallContext(previous_response_id=response_id),
+    )
+
+    assert responses_output_call_ids(messages) == ["call_0", "call_1", "call_2"]
+
+
+@pytest.mark.asyncio
+async def test_aprepare_stored_response_keeps_interleaved_tool_errors(
+    stored_responses_llm: LLM,
+    interleaved_tool_errors: tuple[str, list[LLMConvertibleEvent]],
+) -> None:
+    response_id, events = interleaved_tool_errors
+
+    messages = await aprepare_llm_messages(
+        View(events=events),
+        llm=stored_responses_llm,
+        call_context=LLMCallContext(previous_response_id=response_id),
+    )
+
+    assert isinstance(messages, list)
+    assert responses_output_call_ids(messages) == ["call_0", "call_1", "call_2"]
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_prepare_stored_response_preserves_successful_tool_outputs(
+    stored_responses_llm: LLM,
+    batch_size: int,
+) -> None:
+    response_id = "resp_successful_tools"
+    actions = [
+        action_event(f"call_{index}", response_id, executable=True)
+        for index in range(batch_size)
+    ]
+    observations = [
+        ObservationEvent(
+            observation=MockAgentUtilsObservation(result=f"result {index}"),
+            action_id=action.id,
+            tool_name=action.tool_name,
+            tool_call_id=action.tool_call_id,
+        )
+        for index, action in enumerate(actions)
+    ]
+
+    messages = prepare_llm_messages(
+        View(events=[*actions, *observations]),
+        llm=stored_responses_llm,
+        call_context=LLMCallContext(previous_response_id=response_id),
+    )
+
+    assert responses_output_call_ids(messages) == [
+        f"call_{index}" for index in range(batch_size)
+    ]
 
 
 # ---------------------------------------------------------------------------
