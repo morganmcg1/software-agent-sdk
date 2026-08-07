@@ -1,7 +1,13 @@
-> [!IMPORTANT]
-> This repository is a maintained OpenHands fork. See
-> **[FORK_MODS.md](FORK_MODS.md)** for the major intentional differences from
-> upstream.
+# Maintained OpenHands fork
+
+This repository is maintained for Senpai as a focused fork of
+[OpenHands/software-agent-sdk](https://github.com/OpenHands/software-agent-sdk).
+See **[FORK_MODS.md](FORK_MODS.md)** for the incorporated upstream baseline and
+major intentional differences from upstream.
+
+---
+
+<!-- The upstream OpenHands README starts below this line. -->
 
 <a name="readme-top"></a>
 

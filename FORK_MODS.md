@@ -53,6 +53,24 @@ Source commits:
 [91620be1](https://github.com/morganmcg1/software-agent-sdk/commit/91620be1),
 [afb3639c](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c).
 
+### Token-aware local condensation
+
+The local LLM summarizing condenser can combine its existing token trigger
+with an explicit post-condensation event budget.
+
+- **Bounded post-condensation history:** <code>target_size</code> caps the number
+  of retained events after any condensation trigger. Leaving it unset
+  preserves the existing trigger-specific targets.
+- **Tokenizer readiness:** <code>LLM.has_chat_template_tokenizer()</code> lets
+  callers verify that exact chat-template token counting is available before
+  relying on a token threshold.
+- **Matching template inputs:** Token counting applies configured
+  <code>chat_template_kwargs</code>, so it renders the same template variant as
+  the model request.
+
+Source commit:
+[33608f0b](https://github.com/morganmcg1/software-agent-sdk/commit/33608f0b8242ca0e1f6251efc8f535e249cd6101).
+
 ### Provider prompt-cache controls
 
 - Anthropic prompt caching retains the upstream five-minute default and adds
