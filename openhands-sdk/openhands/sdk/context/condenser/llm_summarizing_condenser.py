@@ -47,6 +47,10 @@ class LLMSummarizingCondenser(RollingCondenser):
     llm: LLM
     max_size: int = Field(default=240, gt=0)
     max_tokens: int | None = None
+    target_size: int | None = Field(default=None, gt=0)
+    """Maximum number of events to retain after condensation. When unset, each
+    trigger retains its existing default target.
+    """
 
     keep_first: int = Field(default=2, ge=0)
     """Minimum number of events to preserve at the start of the view. The first
@@ -72,12 +76,18 @@ class LLMSummarizingCondenser(RollingCondenser):
 
     @model_validator(mode="after")
     def validate_keep_first_vs_max_size(self):
-        events_from_tail = self.max_size // 2 - self.keep_first - 1
-        if events_from_tail <= 0:
+        if self.target_size is not None and self.target_size > self.max_size:
+            raise ValueError("target_size must not exceed max_size")
+        if self.target_size is not None and self.target_size > int(
+            self.max_size * (1 - self.minimum_progress)
+        ):
             raise ValueError(
-                "keep_first must be less than max_size // 2 to leave room for "
-                "condensation"
+                "target_size must leave room for minimum_progress at max_size"
             )
+        target_size = self.target_size or self.max_size // 2
+        events_from_tail = target_size - self.keep_first - 1
+        if events_from_tail <= 0:
+            raise ValueError("keep_first must leave room for the condensation target")
         return self
 
     @model_validator(mode="after")
@@ -286,6 +296,9 @@ class LLMSummarizingCondenser(RollingCondenser):
                     base_events=view.events[: self.keep_first],
                 )
             )
+
+        if self.target_size is not None:
+            suffix_events_to_keep.add(self.target_size - self.keep_first - 1)
 
         # We might have multiple reasons to condense, so pick the strictest condensation
         # to ensure all resource constraints are met.

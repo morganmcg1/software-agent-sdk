@@ -2991,6 +2991,10 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             )
             return 0
 
+    def has_chat_template_tokenizer(self) -> bool:
+        """Return whether exact chat-template token counting is available."""
+        return self._chat_template_tokenizer is not None
+
     def _get_chat_template_token_count(
         self,
         formatted_messages: list[dict],
@@ -3013,10 +3017,16 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
 
         try:
             template_messages = self._messages_for_chat_template(formatted_messages)
-            kwargs: dict[str, Any] = {
-                "tokenize": True,
-                "add_generation_prompt": True,
-            }
+            configured_kwargs = self.litellm_extra_body.get("chat_template_kwargs")
+            kwargs: dict[str, Any] = (
+                dict(configured_kwargs) if isinstance(configured_kwargs, dict) else {}
+            )
+            kwargs.update(
+                {
+                    "tokenize": True,
+                    "add_generation_prompt": True,
+                }
+            )
             if tools:
                 kwargs["tools"] = tools
             tokenized = tokenizer.apply_chat_template(template_messages, **kwargs)

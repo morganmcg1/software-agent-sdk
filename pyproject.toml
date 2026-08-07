@@ -27,6 +27,7 @@ openhands-agent-server = { workspace = true }
 
 [dependency-groups]
 dev = [
+    "lmnr>=0.7.56,<0.8.0",
     "pre-commit>=4.3.0",
     "packaging>=24.2",
     "pillow>=12.1.1",

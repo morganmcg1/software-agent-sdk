@@ -36,6 +36,7 @@ constraints = [
 [manifest.dependency-groups]
 dev = [
     { name = "griffe", extras = ["pypi"], specifier = ">=2.0.0" },
+    { name = "lmnr", specifier = ">=0.7.56,<0.8.0" },
     { name = "packaging", specifier = ">=24.2" },
     { name = "pillow", specifier = ">=12.1.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
