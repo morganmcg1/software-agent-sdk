@@ -11,6 +11,7 @@ Tests are organized by serialization strategy to ensure clear separation of conc
 """
 
 import json
+from typing import TypedDict
 
 from openhands.sdk.llm.message import (
     ImageContent,
@@ -19,8 +20,16 @@ from openhands.sdk.llm.message import (
 )
 
 
+class SerializationOptions(TypedDict):
+    cache_enabled: bool
+    vision_enabled: bool
+    function_calling_enabled: bool
+    force_string_serializer: bool
+    send_reasoning_content: bool
+
+
 # Default serialization options for to_chat_dict() - tests can override as needed
-DEFAULT_SERIALIZATION_OPTS = {
+DEFAULT_SERIALIZATION_OPTS: SerializationOptions = {
     "cache_enabled": False,
     "vision_enabled": False,
     "function_calling_enabled": False,
