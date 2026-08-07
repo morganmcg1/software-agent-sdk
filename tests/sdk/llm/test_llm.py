@@ -524,7 +524,14 @@ def test_llm_token_counting_prefers_chat_template_tokenizer(
             return list(range(321))
 
     tokenizer = FakeChatTemplateTokenizer()
+    assert default_llm.has_chat_template_tokenizer() is False
     default_llm._chat_template_tokenizer = tokenizer
+    default_llm.litellm_extra_body = {
+        "chat_template_kwargs": {
+            "enable_thinking": True,
+            "reasoning_effort": "high",
+        }
+    }
     messages = [Message(role="user", content=[TextContent(text="Hello")])]
     tools = list(FinishTool.create())
 
@@ -535,12 +542,15 @@ def test_llm_token_counting_prefers_chat_template_tokenizer(
     )
 
     assert token_count == 321
+    assert default_llm.has_chat_template_tokenizer() is True
     mock_token_counter.assert_not_called()
     applied_messages, kwargs = tokenizer.calls[0]
     assert applied_messages[0]["role"] == "user"
     assert applied_messages[0]["content"] == "Hello"
     assert kwargs["tokenize"] is True
     assert kwargs["add_generation_prompt"] is True
+    assert kwargs["enable_thinking"] is True
+    assert kwargs["reasoning_effort"] == "high"
     assert kwargs["tools"][0]["function"]["name"] == "finish"
     assert "message" in kwargs["tools"][0]["function"]["parameters"]["properties"]
 

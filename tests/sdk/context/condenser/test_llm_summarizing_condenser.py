@@ -114,6 +114,7 @@ def test_default_values(mock_llm: LLM) -> None:
 
     # Default max_size should be 240 (raised from 120 to allow more room for tool loops)
     assert condenser.max_size == 240
+    assert condenser.target_size is None
 
     # Default keep_first should be 2 (reduced from 4 to leave more room for
     # condensation)
@@ -285,6 +286,25 @@ def test_invalid_config(mock_llm: LLM) -> None:
     with pytest.raises(ValueError):
         LLMSummarizingCondenser(llm=mock_llm, max_size=10, keep_first=8)
 
+    with pytest.raises(ValueError, match="target_size must not exceed max_size"):
+        LLMSummarizingCondenser(llm=mock_llm, max_size=10, target_size=11)
+
+    with pytest.raises(ValueError, match="minimum_progress"):
+        LLMSummarizingCondenser(
+            llm=mock_llm,
+            max_size=100,
+            target_size=91,
+            minimum_progress=0.1,
+        )
+
+    with pytest.raises(ValueError, match="leave room"):
+        LLMSummarizingCondenser(
+            llm=mock_llm,
+            max_size=100,
+            target_size=3,
+            keep_first=2,
+        )
+
 
 def test_get_condensation_does_not_pass_extra_body(mock_llm: LLM) -> None:
     """Condenser should not pass extra_body to llm.completion.
@@ -379,6 +399,38 @@ def test_condense_with_token_limit_exceeded(mock_llm: LLM) -> None:
 
     # Verify forgotten events were calculated based on token reduction
     assert len(result.forgotten_event_ids) > 0
+
+
+def test_target_size_limits_retained_events_after_token_condensation(
+    mock_llm: LLM,
+) -> None:
+    condenser = LLMSummarizingCondenser(
+        llm=mock_llm,
+        max_size=600,
+        max_tokens=180_000,
+        target_size=40,
+        keep_first=2,
+    )
+    agent_llm = MagicMock(spec=LLM)
+    agent_llm.model = "test-model"
+
+    def token_count(messages, **_kwargs):
+        return sum(
+            len(content.text) // 4
+            for message in messages
+            for content in message.content
+            if hasattr(content, "text")
+        )
+
+    cast(MagicMock, agent_llm.get_token_count).side_effect = token_count
+    events: list[Event] = [message_event("A" * 4000) for _ in range(200)]
+    view = View.from_events(events)
+
+    reasons = condenser.get_condensation_reasons(view, agent_llm=agent_llm)
+    result = condenser.get_condensation(view, agent_llm=agent_llm)
+
+    assert reasons == {Reason.TOKENS}
+    assert len(events) - len(result.forgotten_event_ids) + 1 == 40
 
 
 def test_condense_with_request_and_events_reasons(mock_llm: LLM) -> None:

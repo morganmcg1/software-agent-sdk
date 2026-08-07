@@ -139,6 +139,8 @@ def test_llm_agent_settings_export_schema_groups_sections() -> None:
     assert (
         condenser_fields["condenser.max_tokens"].prominence is SettingProminence.MINOR
     )
+    assert condenser_fields["condenser.target_size"].default is None
+    assert condenser_fields["condenser.target_size"].depends_on == ["condenser.enabled"]
 
     # -- verification section (critic settings only) --
     v_fields = {f.key: f for f in sections["verification"].fields}
@@ -942,6 +944,7 @@ def test_llm_create_agent_builds_condenser_when_enabled() -> None:
             enabled=True,
             max_size=100,
             max_tokens=5000,
+            target_size=40,
             keep_first=3,
             minimum_progress=0.2,
             hard_context_reset_max_retries=7,
@@ -954,6 +957,7 @@ def test_llm_create_agent_builds_condenser_when_enabled() -> None:
     assert isinstance(agent.condenser, LLMSummarizingCondenser)
     assert agent.condenser.max_size == 100
     assert agent.condenser.max_tokens == 5000
+    assert agent.condenser.target_size == 40
     assert agent.condenser.keep_first == 3
     assert agent.condenser.minimum_progress == 0.2
     assert agent.condenser.hard_context_reset_max_retries == 7
@@ -989,6 +993,7 @@ def test_openhands_agent_settings_defaults_legacy_condenser_payload() -> None:
     assert settings.condenser.condenser_kind == "llm_summarizing"
     assert settings.condenser.max_size == 100
     assert settings.condenser.max_tokens == 5000
+    assert settings.condenser.target_size is None
 
 
 def test_openhands_agent_settings_dispatches_no_op_condenser_payload() -> None:

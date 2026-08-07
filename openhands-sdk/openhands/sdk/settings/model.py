@@ -213,6 +213,21 @@ class LLMSummarizingCondenserSettings(CondenserSettings):
             ).model_dump()
         },
     )
+    target_size: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Maximum number of events retained after condensation. When unset, "
+            "each trigger uses its default target."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Target size",
+                prominence=SettingProminence.MINOR,
+                depends_on=("enabled",),
+            ).model_dump()
+        },
+    )
     keep_first: int = Field(
         default=2,
         ge=0,
