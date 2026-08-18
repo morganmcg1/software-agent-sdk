@@ -214,6 +214,7 @@ class _RequestScope:
         return self.factory()
 
     def __deepcopy__(self, _memo: dict[int, Any]) -> Self:
+        """Keep copied LLM profiles coordinated through one request scope."""
         return self
 
 
