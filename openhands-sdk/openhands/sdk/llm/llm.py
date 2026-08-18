@@ -7,12 +7,30 @@ import json
 import os
 import threading
 import warnings
-from collections.abc import AsyncIterable, Callable, Iterable, Mapping, Sequence
+from collections.abc import (
+    AsyncIterable,
+    Callable,
+    Coroutine,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, get_args, get_origin
+from functools import wraps
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Concatenate,
+    Literal,
+    Protocol,
+    Self,
+    get_args,
+    get_origin,
+)
 
 from pydantic import (
     BaseModel,
@@ -184,6 +202,71 @@ LLM_SECRET_FIELDS: Final[tuple[str, ...]] = (
 )
 
 LLM_PROFILE_SCHEMA_VERSION: Final[int] = 1
+
+_RequestScopeFactory = Callable[[], AbstractContextManager[None]]
+
+
+@dataclass(frozen=True)
+class _RequestScope:
+    factory: _RequestScopeFactory
+
+    def __call__(self) -> AbstractContextManager[None]:
+        return self.factory()
+
+    def __deepcopy__(self, _memo: dict[int, Any]) -> Self:
+        """Keep copied LLM profiles coordinated through one request scope."""
+        return self
+
+
+class _RequestScopedLLM(Protocol):
+    _request_scope: _RequestScope | None
+
+
+def _request_scoped[RequestSelf: _RequestScopedLLM, **RequestParams, RequestResult](
+    method: Callable[
+        Concatenate[RequestSelf, RequestParams],
+        RequestResult,
+    ],
+) -> Callable[Concatenate[RequestSelf, RequestParams], RequestResult]:
+    @wraps(method)
+    def wrapped(
+        self: RequestSelf,
+        *args: RequestParams.args,
+        **kwargs: RequestParams.kwargs,
+    ) -> RequestResult:
+        if self._request_scope is None:
+            return method(self, *args, **kwargs)
+        with self._request_scope():
+            return method(self, *args, **kwargs)
+
+    return wrapped
+
+
+def _async_request_scoped[
+    RequestSelf: _RequestScopedLLM,
+    **RequestParams,
+    RequestResult,
+](
+    method: Callable[
+        Concatenate[RequestSelf, RequestParams],
+        Coroutine[Any, Any, RequestResult],
+    ],
+) -> Callable[
+    Concatenate[RequestSelf, RequestParams],
+    Coroutine[Any, Any, RequestResult],
+]:
+    @wraps(method)
+    async def wrapped(
+        self: RequestSelf,
+        *args: RequestParams.args,
+        **kwargs: RequestParams.kwargs,
+    ) -> RequestResult:
+        if self._request_scope is None:
+            return await method(self, *args, **kwargs)
+        with self._request_scope():
+            return await method(self, *args, **kwargs)
+
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -703,6 +786,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     _call_context: LLMCallContext = PrivateAttr(default_factory=LLMCallContext)
     _effective_max_input_tokens: int | None = PrivateAttr(default=None)
     _effective_max_output_tokens: int | None = PrivateAttr(default=None)
+    _request_scope: _RequestScope | None = PrivateAttr(default=None)
     # Plain (non-reentrant) Lock: the async transport path acquires this off
     # the event loop thread (see `_alitellm_modify_params_ctx`) and releases
     # it back on the event loop thread, which an RLock would reject since it
@@ -890,6 +974,10 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         # which would create noisy duplicate error logs.
         # The completion()/responses() exception handlers call Telemetry.on_error
         # after retries are exhausted (final failure), which is what we want to log.
+
+    def set_request_scope(self, factory: _RequestScopeFactory | None) -> None:
+        """Bind a runtime-only scope around each logical model request."""
+        self._request_scope = _RequestScope(factory) if factory is not None else None
 
     # =========================================================================
     # Serializers
@@ -1537,6 +1625,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     # Chat Completion API
     # =========================================================================
 
+    @_request_scoped
     def completion(
         self,
         messages: list[Message],
@@ -1659,6 +1748,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     # =========================================================================
     # Async Chat Completion API
     # =========================================================================
+    @_async_request_scoped
     async def acompletion(
         self,
         messages: list[Message],
@@ -1758,6 +1848,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     # =========================================================================
     # Responses API (v1)
     # =========================================================================
+    @_request_scoped
     def responses(
         self,
         messages: list[Message],
@@ -1920,6 +2011,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     # =========================================================================
     # Async Responses API
     # =========================================================================
+    @_async_request_scoped
     async def aresponses(
         self,
         messages: list[Message],
