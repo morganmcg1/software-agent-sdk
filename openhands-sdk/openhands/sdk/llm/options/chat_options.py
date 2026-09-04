@@ -78,7 +78,9 @@ def select_chat_options(
         out.pop("top_p", None)
         out.pop("top_k", None)
 
-    if llm.uses_anthropic_compaction():
+    effective_call_context = call_context or llm._call_context
+    preserve_provider_state = effective_call_context.preserve_provider_state
+    if preserve_provider_state and llm.uses_anthropic_compaction():
         compaction: dict[str, Any] = {
             "type": "compact_20260112",
             "trigger": {
@@ -89,6 +91,8 @@ def select_chat_options(
         if llm.anthropic_compaction_instructions:
             compaction["instructions"] = llm.anthropic_compaction_instructions
         out.setdefault("context_management", {"edits": [compaction]})
+    elif not preserve_provider_state:
+        out.pop("context_management", None)
 
     # Tools: if not using native, strip tool_choice so we don't confuse providers
     if not has_tools:
@@ -100,6 +104,6 @@ def select_chat_options(
         out["prompt_cache_retention"] = llm.prompt_cache_retention
 
     out = apply_extra_body(out, llm)
-    out = apply_call_context(out, llm, call_context)
+    out = apply_call_context(out, llm, effective_call_context)
 
     return out

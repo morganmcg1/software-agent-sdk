@@ -24,6 +24,7 @@ from openhands.sdk.llm import (
     MessageToolCall,
     TextContent,
 )
+from openhands.sdk.llm.llm import LLMCallContext
 from openhands.sdk.llm.options.chat_options import select_chat_options
 from openhands.sdk.tool import Action
 
@@ -74,6 +75,28 @@ def test_explicit_context_management_takes_precedence() -> None:
     )
 
     assert options["context_management"] is explicit
+
+
+def test_stateless_call_omits_anthropic_compaction() -> None:
+    llm = LLM(
+        model="anthropic/claude-opus-4-6",
+        anthropic_compact_threshold=150_000,
+    )
+    llm._call_context = LLMCallContext(
+        prompt_cache_key="conversation-cache",
+        session_id="conversation-session",
+        preserve_provider_state=False,
+    )
+
+    options = select_chat_options(
+        llm,
+        {"context_management": {"edits": [{"type": "compact_20260112"}]}},
+        has_tools=True,
+    )
+
+    assert "context_management" not in options
+    assert options["prompt_cache_key"] == "conversation-cache"
+    assert options["extra_headers"]["x-litellm-session-id"] == "conversation-session"
 
 
 def test_compaction_block_is_captured_and_replayed_through_litellm_fields() -> None:

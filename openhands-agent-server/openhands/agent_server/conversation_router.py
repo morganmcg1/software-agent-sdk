@@ -490,7 +490,10 @@ async def switch_conversation_profile(
 
 @conversation_router.post(
     "/{conversation_id}/switch_llm",
-    responses={404: {"description": "Conversation not found"}},
+    responses={
+        400: {"description": "LLM switch is incompatible with conversation state"},
+        404: {"description": "Conversation not found"},
+    },
 )
 async def switch_conversation_llm(
     request: Request,
@@ -510,7 +513,13 @@ async def switch_conversation_llm(
     cipher = get_cipher(request)
     if cipher is not None:
         llm = decrypt_incoming_llm_secrets(llm, cipher)
-    conversation.switch_llm(llm)
+    try:
+        conversation.switch_llm(llm)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     return Success()
 
 

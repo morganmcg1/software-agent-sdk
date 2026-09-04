@@ -14,7 +14,6 @@ from openhands.agent_server.conversation_service import ConversationService
 from openhands.agent_server.dependencies import get_conversation_service
 from openhands.agent_server.event_service import EventService
 from openhands.agent_server.models import (
-    ACPConversationInfo,
     ConversationInfo,
     ConversationPage,
     ConversationSortOrder,
@@ -676,7 +675,7 @@ def test_start_conversation_agent_settings_uses_sdk_default_tools(
 
 def test_start_conversation_accepts_acp_agent(client, mock_conversation_service):
     now = utc_now()
-    acp_info = ACPConversationInfo(
+    acp_info = ConversationInfo(
         id=uuid4(),
         agent=ACPAgent(acp_command=["echo", "test"]),
         workspace=LocalWorkspace(working_dir="/tmp/test"),
@@ -713,7 +712,7 @@ def test_start_conversation_accepts_acp_agent_settings(
     client, mock_conversation_service
 ):
     now = utc_now()
-    acp_info = ACPConversationInfo(
+    acp_info = ConversationInfo(
         id=uuid4(),
         agent=ACPAgent(acp_command=["echo", "settings"]),
         workspace=LocalWorkspace(working_dir="/tmp/test"),
@@ -2489,6 +2488,33 @@ def test_switch_conversation_llm_not_found(
         )
 
         assert response.status_code == 404
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_switch_conversation_llm_rejects_incompatible_conversation_state(
+    client, mock_conversation_service, mock_event_service, sample_conversation_id
+):
+    mock_conversation = MagicMock()
+    mock_conversation.switch_llm.side_effect = ValueError(
+        "stored Responses continuation cannot cross LLM profiles"
+    )
+    mock_conversation_service.get_event_service.return_value = mock_event_service
+    mock_event_service.get_conversation.return_value = mock_conversation
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+
+    try:
+        response = client.post(
+            f"/api/conversations/{sample_conversation_id}/switch_llm",
+            json={"llm": {"model": "openai/gpt-5.1", "usage_id": "target"}},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "stored Responses continuation cannot cross LLM profiles"
+        )
     finally:
         client.app.dependency_overrides.clear()
 

@@ -11,18 +11,18 @@ Remove an entry when upstream provides the same behavioral contract.
 ## Baseline
 
 - Upstream baseline:
-  [v1.40.0](https://github.com/OpenHands/software-agent-sdk/tree/v1.40.0)
-  ([2f276539](https://github.com/OpenHands/software-agent-sdk/commit/2f27653959f7596769427ee4657247b32c94504e))
+  [v1.44.1](https://github.com/OpenHands/software-agent-sdk/tree/v1.44.1)
+  ([9d143aac](https://github.com/OpenHands/software-agent-sdk/commit/9d143aac35c2dcec9cbb046ff9f35ac5eb072f6a))
 - Fork branch:
   [morganmcg1/software-agent-sdk:main](https://github.com/morganmcg1/software-agent-sdk/tree/main)
 
 Compare the fork against its incorporated upstream baseline:
 
 ~~~bash
-git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.40.0
-git log --oneline v1.40.0..main
-git diff --stat v1.40.0..main
-git diff v1.40.0..main -- openhands-sdk openhands-tools
+git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.44.1
+git log --oneline v1.44.1..main
+git diff --stat v1.44.1..main
+git diff v1.44.1..main -- openhands-sdk openhands-tools
 ~~~
 
 ## Major feature changes
@@ -47,6 +47,12 @@ the complete local OpenHands event log.
   chain is active, preventing competing summaries. An independently configured
   Responses-mode summarizing condenser still uses Responses with
   <code>store=False</code>.
+- Auxiliary LLM calls are stateless: they retain cache/session affinity but do
+  not inherit a response ID, reasoning context, or provider compaction policy.
+  Stored Responses continuation cannot be combined with cross-profile fallback
+  because provider response IDs are not portable between profiles. For the same
+  reason, a conversation with an active response chain rejects switching to a
+  different continuation-enabled LLM; stateless targets remain switchable.
 
 Source commits:
 [29e8d30c](https://github.com/morganmcg1/software-agent-sdk/commit/29e8d30c),
@@ -90,6 +96,17 @@ Source commits:
 [aac9673f](https://github.com/morganmcg1/software-agent-sdk/commit/aac9673f),
 [da7d76fe](https://github.com/morganmcg1/software-agent-sdk/commit/da7d76fe).
 
+### Runtime model request scopes
+
+An LLM can wrap each provider request in a caller-supplied synchronous context
+manager. Copied model profiles share the same scope, which lets Senpai attach
+heartbeat and request-lifetime behavior to main-agent and delegated calls
+without modifying the provider transport. Nested metadata resolution reuses the
+active scope, while concurrent requests enter independently.
+
+Source commit:
+[a3f5bb8e](https://github.com/morganmcg1/software-agent-sdk/commit/a3f5bb8ec619ab34dbc3acb55e1e98abbb670d50).
+
 ### Provider-compatible discriminated tool schemas
 
 Pydantic object unions are presented to models as one flattened object
@@ -130,6 +147,11 @@ remains available through <code>openhands-sdk[laminar]</code>.
 
 Source commit:
 [527771ce](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce).
+
+### FastMCP 3 compatibility
+
+FastMCP is constrained to version 3 because Senpai's browser-use 0.11.9
+integration still depends on the MCP 1 server API removed by FastMCP 4.
 
 ## Maintenance
 

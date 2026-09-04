@@ -29,6 +29,8 @@ def select_responses_options(
     if not llm.is_subscription:
         defaults["max_output_tokens"] = llm.effective_max_output_tokens
     out = apply_defaults_if_absent(user_kwargs, defaults)
+    effective_call_context = call_context or llm._call_context
+    preserve_provider_state = effective_call_context.preserve_provider_state
 
     model_features = llm._model_features()
     if not llm.is_subscription and model_features.supports_sampling_params is False:
@@ -46,6 +48,8 @@ def select_responses_options(
         out["store"] = bool(store)
     else:
         out.setdefault("store", llm.responses_store)
+    if not preserve_provider_state:
+        out["store"] = False
 
     # Include encrypted reasoning only when the user enables it on the LLM,
     # and only for stateless calls (store=False). Respect user choice.
@@ -71,10 +75,10 @@ def select_responses_options(
             # Optionally include summary if explicitly set (requires verified org)
             if llm.reasoning_summary:
                 out["reasoning"]["summary"] = llm.reasoning_summary
-            if llm.reasoning_context:
+            if preserve_provider_state and llm.reasoning_context:
                 out["reasoning"]["context"] = llm.reasoning_context
 
-    if llm.responses_compact_threshold:
+    if preserve_provider_state and llm.responses_compact_threshold:
         out.setdefault(
             "context_management",
             [
@@ -84,6 +88,12 @@ def select_responses_options(
                 }
             ],
         )
+    elif not preserve_provider_state:
+        out.pop("context_management", None)
+        if isinstance(reasoning := out.get("reasoning"), dict):
+            reasoning = dict(reasoning)
+            reasoning.pop("context", None)
+            out["reasoning"] = reasoning
 
     # Send prompt_cache_retention only if model supports it
     # Note: prompt_cache_retention is not supported in subscription mode
@@ -95,6 +105,6 @@ def select_responses_options(
         out["prompt_cache_retention"] = llm.prompt_cache_retention
 
     out = apply_extra_body(out, llm)
-    out = apply_call_context(out, llm, call_context)
+    out = apply_call_context(out, llm, effective_call_context)
 
     return out
