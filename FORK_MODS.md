@@ -11,18 +11,18 @@ Remove an entry when upstream provides the same behavioral contract.
 ## Baseline
 
 - Upstream baseline:
-  [v1.40.0](https://github.com/OpenHands/software-agent-sdk/tree/v1.40.0)
-  ([2f276539](https://github.com/OpenHands/software-agent-sdk/commit/2f27653959f7596769427ee4657247b32c94504e))
+  [v1.44.1](https://github.com/OpenHands/software-agent-sdk/tree/v1.44.1)
+  ([9d143aac](https://github.com/OpenHands/software-agent-sdk/commit/9d143aac35c2dcec9cbb046ff9f35ac5eb072f6a))
 - Fork branch:
   [morganmcg1/software-agent-sdk:main](https://github.com/morganmcg1/software-agent-sdk/tree/main)
 
 Compare the fork against its incorporated upstream baseline:
 
 ~~~bash
-git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.40.0
-git log --oneline v1.40.0..main
-git diff --stat v1.40.0..main
-git diff v1.40.0..main -- openhands-sdk openhands-tools
+git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.44.1
+git log --oneline v1.44.1..main
+git diff --stat v1.44.1..main
+git diff v1.44.1..main -- openhands-sdk openhands-tools
 ~~~
 
 ## Major feature changes
@@ -89,6 +89,16 @@ Source commits:
 [2fccbe83](https://github.com/morganmcg1/software-agent-sdk/commit/2fccbe83),
 [aac9673f](https://github.com/morganmcg1/software-agent-sdk/commit/aac9673f),
 [da7d76fe](https://github.com/morganmcg1/software-agent-sdk/commit/da7d76fe).
+
+### Runtime model request scopes
+
+An LLM can wrap each provider request in a caller-supplied synchronous context
+manager. Copied model profiles share the same scope, which lets Senpai attach
+heartbeat and request-lifetime behavior to main-agent and delegated calls
+without modifying the provider transport.
+
+Source commit:
+[a3f5bb8e](https://github.com/morganmcg1/software-agent-sdk/commit/a3f5bb8ec619ab34dbc3acb55e1e98abbb670d50).
 
 ### Provider-compatible discriminated tool schemas
 
