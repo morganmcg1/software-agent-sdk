@@ -379,9 +379,7 @@ def test_step_resolves_runtime_metadata_before_condensation(monkeypatch):
         assert llm is not None
         observed["resolved"] = llm.resolved_runtime_metadata is not None
         observed["limit"] = llm.effective_max_input_tokens
-        return original(
-            view, condenser=condenser, llm=llm, call_context=call_context
-        )
+        return original(view, condenser=condenser, llm=llm, call_context=call_context)
 
     monkeypatch.setattr(agent_mod, "prepare_llm_messages", spy)
 
