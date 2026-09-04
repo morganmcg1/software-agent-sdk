@@ -678,6 +678,52 @@ def test_remote_conversation_over_real_server(server_env, patched_llm):
         shutil.rmtree(cwd_conversations)
 
 
+def test_switch_llm_rejects_cross_profile_stored_response_chain(server_env):
+    from openhands.sdk import Message, TextContent
+
+    workspace = RemoteWorkspace(
+        host=server_env["host"], working_dir="/tmp/workspace/project"
+    )
+    remote: RemoteConversation = Conversation(
+        agent=Agent(llm=LLM(model="gpt-4o-mini"), tools=[]),
+        workspace=workspace,
+    )
+    try:
+        event_service = server_env["conversation_service"]._event_services[remote.id]
+        local = event_service.get_conversation()
+        local._on_event(
+            MessageEvent(
+                source="agent",
+                llm_message=Message(
+                    role="assistant",
+                    content=[TextContent(text="stored response")],
+                ),
+                llm_response_id="resp_source",
+            )
+        )
+
+        with httpx.Client(base_url=server_env["host"]) as client:
+            response = client.post(
+                f"/api/conversations/{remote.id}/switch_llm",
+                json={
+                    "llm": {
+                        "model": "openai/gpt-5.1",
+                        "usage_id": "target-responses",
+                        "api_mode": "responses",
+                        "responses_store": True,
+                        "responses_use_previous_response_id": True,
+                    }
+                },
+                timeout=10,
+            )
+
+        assert response.status_code == 400
+        assert "stored Responses continuation" in response.json()["detail"]
+        assert local.agent.llm.model == "gpt-4o-mini"
+    finally:
+        remote.close()
+
+
 def test_openai_chat_completions_gateway_over_real_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, patched_llm
 ):

@@ -47,6 +47,12 @@ the complete local OpenHands event log.
   chain is active, preventing competing summaries. An independently configured
   Responses-mode summarizing condenser still uses Responses with
   <code>store=False</code>.
+- Auxiliary LLM calls are stateless: they retain cache/session affinity but do
+  not inherit a response ID, reasoning context, or provider compaction policy.
+  Stored Responses continuation cannot be combined with cross-profile fallback
+  because provider response IDs are not portable between profiles. For the same
+  reason, a conversation with an active response chain rejects switching to a
+  different continuation-enabled LLM; stateless targets remain switchable.
 
 Source commits:
 [29e8d30c](https://github.com/morganmcg1/software-agent-sdk/commit/29e8d30c),
@@ -95,7 +101,8 @@ Source commits:
 An LLM can wrap each provider request in a caller-supplied synchronous context
 manager. Copied model profiles share the same scope, which lets Senpai attach
 heartbeat and request-lifetime behavior to main-agent and delegated calls
-without modifying the provider transport.
+without modifying the provider transport. Nested metadata resolution reuses the
+active scope, while concurrent requests enter independently.
 
 Source commit:
 [a3f5bb8e](https://github.com/morganmcg1/software-agent-sdk/commit/a3f5bb8ec619ab34dbc3acb55e1e98abbb670d50).
@@ -140,6 +147,11 @@ remains available through <code>openhands-sdk[laminar]</code>.
 
 Source commit:
 [527771ce](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce).
+
+### FastMCP 3 compatibility
+
+FastMCP is constrained to version 3 because Senpai's browser-use 0.11.9
+integration still depends on the MCP 1 server API removed by FastMCP 4.
 
 ## Maintenance
 

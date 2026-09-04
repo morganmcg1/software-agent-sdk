@@ -44,6 +44,7 @@ from openhands.sdk.tool import Action, Observation, ToolDefinition
 def mock_llm():
     """Create a mock LLM for testing."""
     llm = Mock(spec=LLM)
+    llm._call_context = LLMCallContext()
     llm.uses_responses_api.return_value = False
     return llm
 
@@ -413,7 +414,7 @@ def test_make_llm_completion_with_completion_api(mock_llm, sample_messages):
         tools=[],
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
     mock_llm.responses.assert_not_called()
 
@@ -435,10 +436,10 @@ def test_make_llm_completion_with_responses_api(mock_llm, sample_messages):
         messages=sample_messages,
         tools=[],
         include=None,
-        store=None,
+        store=False,
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
     mock_llm.completion.assert_not_called()
 
@@ -463,7 +464,7 @@ def test_make_llm_completion_with_tools_completion_api(
         tools=sample_tools,
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
 
 
@@ -486,10 +487,35 @@ def test_make_llm_completion_with_tools_responses_api(
         messages=sample_messages,
         tools=sample_tools,
         include=None,
+        store=False,
+        add_security_risk_prediction=True,
+        on_token=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
+    )
+
+
+def test_make_llm_completion_can_preserve_provider_state(mock_llm, sample_messages):
+    mock_llm.uses_responses_api.return_value = True
+    mock_response = Mock(spec=LLMResponse)
+    mock_llm.responses.return_value = mock_response
+    call_context = LLMCallContext(previous_response_id="resp_previous")
+
+    result = make_llm_completion(
+        mock_llm,
+        sample_messages,
+        call_context=call_context,
+        preserve_provider_state=True,
+    )
+
+    assert result == mock_response
+    mock_llm.responses.assert_called_once_with(
+        messages=sample_messages,
+        tools=[],
+        include=None,
         store=None,
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=call_context,
     )
 
 
@@ -510,7 +536,7 @@ def test_make_llm_completion_with_none_tools(mock_llm, sample_messages):
         tools=[],
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
 
 
@@ -531,7 +557,7 @@ def test_make_llm_completion_with_empty_tools_list(mock_llm, sample_messages):
         tools=[],
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
 
 
@@ -552,7 +578,7 @@ def test_make_llm_completion_empty_messages(mock_llm):
         tools=[],
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
 
 
@@ -586,7 +612,7 @@ def test_prepare_llm_messages_and_make_llm_completion_integration(
         tools=[],
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
 
 
@@ -594,6 +620,7 @@ def test_make_llm_completion_api_selection():
     """Test that make_llm_completion correctly selects between completion and responses APIs."""  # noqa: E501
     # Test completion API selection
     mock_llm = Mock(spec=LLM)
+    mock_llm._call_context = LLMCallContext()
     mock_llm.uses_responses_api.return_value = False
     mock_response = Mock(spec=LLMResponse)
     mock_llm.completion.return_value = mock_response
@@ -614,7 +641,7 @@ def test_make_llm_completion_api_selection():
         tools=[],
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
     mock_llm.responses.assert_not_called()
 
@@ -631,9 +658,9 @@ def test_make_llm_completion_api_selection():
         messages=messages,
         tools=[],
         include=None,
-        store=None,
+        store=False,
         add_security_risk_prediction=True,
         on_token=None,
-        call_context=None,
+        call_context=LLMCallContext(preserve_provider_state=False),
     )
     mock_llm.completion.assert_not_called()

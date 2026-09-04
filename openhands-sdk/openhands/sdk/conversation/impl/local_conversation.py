@@ -407,7 +407,10 @@ class LocalConversation(BaseConversation):
                 register_client_tools(recovered_specs)
         self.agent = agent
 
-        self._bind_conversation_context(self.agent.llm)
+        self._bind_conversation_context(
+            self.agent.llm,
+            recover_previous_response_id=False,
+        )
 
         # Default callback: persist every event to state
         def _default_callback(e):
@@ -1603,7 +1606,12 @@ class LocalConversation(BaseConversation):
             previous_response_id=previous_response_id,
         )
 
-    def _bind_conversation_context(self, llm: LLM) -> None:
+    def _bind_conversation_context(
+        self,
+        llm: LLM,
+        *,
+        recover_previous_response_id: bool = True,
+    ) -> None:
         """Bind per-conversation call context to *llm* as a PrivateAttr fallback.
 
         This sets the LLM's ``_call_context`` so that callers who don't
@@ -1613,9 +1621,20 @@ class LocalConversation(BaseConversation):
         context explicitly via ``Agent.step()`` → ``make_llm_completion()``
         → ``llm.completion(call_context=...)``.
 
+        Constructor binding disables response recovery so persisted event files
+        remain lazy until the conversation is used.
+
         See #3443 for background.
         """
-        llm._call_context = self.get_llm_call_context()
+        if recover_previous_response_id:
+            call_context = self.get_llm_call_context()
+        else:
+            conv_id = str(self._state.id)
+            call_context = LLMCallContext(
+                prompt_cache_key=self._prompt_cache_key or conv_id,
+                session_id=conv_id,
+            )
+        llm._call_context = call_context
 
     def _condenser_for_switched_llm(
         self,
@@ -1655,12 +1674,11 @@ class LocalConversation(BaseConversation):
 
         Args:
             llm: LLM to install on the agent.
+
+        Raises:
+            ValueError: If the switch would attach a provider-specific stored
+                Responses chain to a different LLM.
         """
-        try:
-            new_llm = self.llm_registry.get(llm.usage_id)
-        except KeyError:
-            new_llm = create_subscription_llm_from_config(llm)
-            self.llm_registry.add(new_llm)
         # A switch_llm tool runs on a worker thread while run()/arun() holds the
         # state lock across the agent step on another thread, blocked awaiting
         # this very tool. Re-acquiring _state here would deadlock, so skip it:
@@ -1672,6 +1690,28 @@ class LocalConversation(BaseConversation):
         skip_lock = self._step_holds_state_lock and not self._state.owned()
         lock = contextlib.nullcontext() if skip_lock else self._state
         with lock:
+            add_to_registry = False
+            try:
+                new_llm = self.llm_registry.get(llm.usage_id)
+            except KeyError:
+                new_llm = create_subscription_llm_from_config(llm)
+                add_to_registry = True
+
+            if (
+                new_llm is not self.agent.llm
+                and new_llm.uses_responses_api()
+                and new_llm.responses_use_previous_response_id
+                and self.get_llm_call_context().previous_response_id is not None
+            ):
+                raise ValueError(
+                    "Cannot switch to a different LLM with stored Responses "
+                    "continuation after a response chain has started. Start a new "
+                    "conversation or disable responses_use_previous_response_id on "
+                    "the target LLM."
+                )
+
+            if add_to_registry:
+                self.llm_registry.add(new_llm)
             update: dict[str, object] = {"llm": new_llm}
             update["condenser"] = self._condenser_for_switched_llm(
                 self.agent.llm,
@@ -2829,6 +2869,7 @@ class LocalConversation(BaseConversation):
                     "responses_store": False,
                     "responses_use_previous_response_id": False,
                     "responses_compact_threshold": None,
+                    "anthropic_compact_threshold": None,
                 },
                 deep=True,
             )

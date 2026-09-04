@@ -107,25 +107,11 @@ class LLMSummarizingCondenser(RollingCondenser):
         return True
 
     def _complete_summary(self, messages: list[Message]) -> LLMResponse:
-        if self.llm.uses_responses_api():
-            return self.llm.responses(
-                messages=messages,
-                tools=[],
-                include=None,
-                store=False,
-            )
         from openhands.sdk.agent.utils import make_llm_completion
 
         return make_llm_completion(llm=self.llm, messages=messages)
 
     async def _acomplete_summary(self, messages: list[Message]) -> LLMResponse:
-        if self.llm.uses_responses_api():
-            return await self.llm.aresponses(
-                messages=messages,
-                tools=[],
-                include=None,
-                store=False,
-            )
         from openhands.sdk.agent.utils import amake_llm_completion
 
         return await amake_llm_completion(llm=self.llm, messages=messages)
@@ -327,7 +313,7 @@ class LLMSummarizingCondenser(RollingCondenser):
                 )
             )
 
-        if self.target_size is not None:
+        if self.target_size is not None and len(view) > self.target_size:
             suffix_events_to_keep.add(self.target_size - self.keep_first - 1)
 
         # We might have multiple reasons to condense, so pick the strictest condensation

@@ -344,6 +344,11 @@ def test_conversation_state_corrupted_event_handling():
             conversation_id=conv_id,
         )
 
+        call_context = conversation.agent.llm._call_context
+        assert call_context.prompt_cache_key == str(conv_id)
+        assert call_context.session_id == str(conv_id)
+        assert call_context.previous_response_id is None
+
         # Accessing events triggers validation - corrupted JSON will fail
         with pytest.raises((ValidationError, json.JSONDecodeError)):
             # Iterate through all events to trigger loading

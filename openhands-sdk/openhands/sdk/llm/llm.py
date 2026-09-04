@@ -12,12 +12,13 @@ from collections.abc import (
     Callable,
     Coroutine,
     Iterable,
+    Iterator,
     Mapping,
     Sequence,
 )
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
@@ -221,9 +222,27 @@ _RequestScopeFactory = Callable[[], AbstractContextManager[None]]
 @dataclass(frozen=True)
 class _RequestScope:
     factory: _RequestScopeFactory
+    _active: ContextVar[bool] = field(
+        default_factory=lambda: ContextVar(
+            "openhands_llm_request_scope_active", default=False
+        ),
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
-    def __call__(self) -> AbstractContextManager[None]:
-        return self.factory()
+    @contextmanager
+    def __call__(self) -> Iterator[None]:
+        if self._active.get():
+            yield
+            return
+
+        token = self._active.set(True)
+        try:
+            with self.factory():
+                yield
+        finally:
+            self._active.reset(token)
 
     def __deepcopy__(self, _memo: dict[int, Any]) -> Self:
         """Keep copied LLM profiles coordinated through one request scope."""
@@ -301,6 +320,9 @@ class LLMCallContext:
     prompt_cache_key: str | None = None
     session_id: str | None = None
     previous_response_id: str | None = None
+    # Utility calls disable this so they cannot join or mutate the agent's
+    # provider-managed response/compaction chain.
+    preserve_provider_state: bool = True
 
 
 class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
@@ -882,6 +904,14 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         if d.get("responses_use_previous_response_id") and not d.get("responses_store"):
             raise ValueError(
                 "responses_use_previous_response_id requires responses_store=True"
+            )
+        if (
+            d.get("responses_use_previous_response_id")
+            and d.get("fallback_strategy") is not None
+        ):
+            raise ValueError(
+                "responses_use_previous_response_id cannot be combined with "
+                "fallback_strategy because response chains are provider-specific"
             )
 
         # Azure default version
@@ -1786,6 +1816,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     tools,
                     add_security_risk_prediction=add_security_risk_prediction,
                     on_token=on_token,
+                    call_context=call_context,
                     **_caller_kwargs,
                 )
             return self._handle_error(
@@ -1891,6 +1922,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     tools,
                     add_security_risk_prediction=add_security_risk_prediction,
                     on_token=on_token,
+                    call_context=call_context,
                     **_caller_kwargs,
                 )
             # Fallback is synchronous; cast the token callback since the
@@ -2058,6 +2090,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     store,
                     add_security_risk_prediction=add_security_risk_prediction,
                     on_token=on_token,
+                    call_context=call_context,
                     **_caller_kwargs,
                 )
             return self._handle_error(
@@ -2236,6 +2269,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     store,
                     add_security_risk_prediction=add_security_risk_prediction,
                     on_token=on_token,
+                    call_context=call_context,
                     **_caller_kwargs,
                 )
             _fb_token = cast("TokenCallbackType | None", on_token)
@@ -2770,6 +2804,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     # =========================================================================
     # Runtime (provider-aware) metadata
     # =========================================================================
+    @_request_scoped
     def resolve_runtime_metadata(
         self, *, force: bool = False
     ) -> ModelRuntimeMetadata | None:
@@ -2806,6 +2841,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         self._store_runtime_metadata(metadata, generation)
         return metadata
 
+    @_async_request_scoped
     async def aresolve_runtime_metadata(
         self, *, force: bool = False
     ) -> ModelRuntimeMetadata | None:

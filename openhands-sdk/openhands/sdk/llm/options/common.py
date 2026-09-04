@@ -81,7 +81,13 @@ def apply_call_context(
             **existing,
             "x-litellm-session-id": ctx.session_id,
         }
-    if llm.responses_use_previous_response_id and ctx.previous_response_id:
+    if (
+        ctx.preserve_provider_state
+        and llm.responses_use_previous_response_id
+        and ctx.previous_response_id
+    ):
         out["previous_response_id"] = ctx.previous_response_id
+    elif not ctx.preserve_provider_state:
+        out.pop("previous_response_id", None)
 
     return out

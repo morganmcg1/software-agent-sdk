@@ -10,7 +10,7 @@ import tempfile
 from pydantic import SecretStr
 
 from openhands.sdk.agent import Agent
-from openhands.sdk.conversation import Conversation
+from openhands.sdk.conversation import Conversation, LocalConversation
 from openhands.sdk.event import MessageEvent
 from openhands.sdk.llm import LLM, Message, TextContent
 from openhands.sdk.llm.llm import LLMCallContext
@@ -84,6 +84,37 @@ def test_conversation_context_recovers_latest_openai_response_id():
     )
 
     assert conv.get_llm_call_context().previous_response_id == "resp_durable"
+
+
+def test_resumed_conversation_lazily_recovers_latest_openai_response_id():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Conversation(
+            agent=_agent(),
+            persistence_dir=tmpdir,
+            workspace=tmpdir,
+        )
+        source._on_event(
+            MessageEvent(
+                source="agent",
+                llm_message=Message(
+                    role="assistant",
+                    content=[TextContent(text="durable response")],
+                ),
+                llm_response_id="resp_durable",
+            )
+        )
+
+        resumed = LocalConversation(
+            agent=None,
+            persistence_dir=tmpdir,
+            workspace=tmpdir,
+            conversation_id=source.id,
+        )
+
+        assert resumed.agent.llm._call_context.previous_response_id is None
+        resumed._ensure_agent_ready()
+        assert resumed.agent.llm._call_context.previous_response_id == "resp_durable"
+        assert resumed.get_llm_call_context().previous_response_id == "resp_durable"
 
 
 # ── select_chat_options injection tests ────────────────────────────────

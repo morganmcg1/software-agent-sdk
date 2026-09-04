@@ -727,6 +727,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                 tools=list(self.tools_map.values()),
                 on_token=on_token,
                 call_context=call_context,
+                preserve_provider_state=True,
             )
         except FunctionCallValidationError as e:
             logger.warning(f"LLM generated malformed function call: {e}")
@@ -921,6 +922,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                     tools=list(self.tools_map.values()),
                     on_token=on_token,
                     call_context=call_context,
+                    preserve_provider_state=True,
                 )
         except FunctionCallValidationError as e:
             logger.warning(f"LLM generated malformed function call: {e}")

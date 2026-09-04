@@ -17,7 +17,7 @@ from openai.types.responses.response_reasoning_item import (
 )
 from pydantic import SecretStr
 
-from openhands.sdk.llm import LLM
+from openhands.sdk.llm import LLM, FallbackStrategy
 from openhands.sdk.llm.llm import LLMCallContext
 from openhands.sdk.llm.message import Message, ReasoningItemModel, TextContent
 from openhands.sdk.llm.options.chat_options import select_chat_options
@@ -121,11 +121,59 @@ def test_stored_responses_options_continue_reasoning_and_compact():
     assert "include" not in out
 
 
+def test_stateless_responses_options_strip_provider_state():
+    llm = LLM(
+        model="openai/gpt-5.1",
+        api_mode="responses",
+        capability_overrides={"supports_reasoning_effort": True},
+        reasoning_effort="high",
+        reasoning_context="all_turns",
+        responses_store=True,
+        responses_use_previous_response_id=True,
+        responses_compact_threshold=200_000,
+    )
+    call_context = LLMCallContext(
+        prompt_cache_key="conversation-cache",
+        session_id="conversation-session",
+        previous_response_id="resp_previous",
+        preserve_provider_state=False,
+    )
+
+    out = select_responses_options(
+        llm,
+        {
+            "previous_response_id": "resp_explicit",
+            "context_management": [{"type": "compaction"}],
+            "reasoning": {"effort": "high", "context": "all_turns"},
+        },
+        include=None,
+        store=True,
+        call_context=call_context,
+    )
+
+    assert out["store"] is False
+    assert "previous_response_id" not in out
+    assert "context_management" not in out
+    assert "context" not in out["reasoning"]
+    assert out["prompt_cache_key"] == "conversation-cache"
+    assert out["extra_headers"]["x-litellm-session-id"] == "conversation-session"
+
+
 def test_previous_response_id_requires_stored_responses():
     with pytest.raises(ValueError, match="requires responses_store=True"):
         LLM(
             model="openai/gpt-5.1",
             responses_use_previous_response_id=True,
+        )
+
+
+def test_previous_response_id_rejects_provider_specific_fallback_chain():
+    with pytest.raises(ValueError, match="response chains are provider-specific"):
+        LLM(
+            model="openai/gpt-5.1",
+            responses_store=True,
+            responses_use_previous_response_id=True,
+            fallback_strategy=FallbackStrategy(fallback_llms=["backup"]),
         )
 
 
@@ -418,10 +466,14 @@ def test_responses_retries_without_caching_on_prompt_cache_too_small(mock_respon
     # ``**kwargs`` (not a named param), so it's the cleanest probe for the
     # ``_caller_kwargs`` forwarding fix; ``store`` exercises the positional-arg
     # path on the retry call signature.
+    call_context = LLMCallContext(
+        prompt_cache_key="cache-abc", session_id="session-xyz"
+    )
     response = llm.responses(
         messages,
         store=False,
         metadata={"trace_id": "abc-123"},
+        call_context=call_context,
     )
 
     # Two calls: first with caching active (fails), second without (succeeds).
@@ -433,6 +485,10 @@ def test_responses_retries_without_caching_on_prompt_cache_too_small(mock_respon
     second_kwargs = mock_responses.call_args_list[1].kwargs
     assert second_kwargs.get("store") is False
     assert second_kwargs.get("metadata") == {"trace_id": "abc-123"}
+    assert second_kwargs.get("prompt_cache_key") == call_context.prompt_cache_key
+    assert second_kwargs["extra_headers"]["x-litellm-session-id"] == (
+        call_context.session_id
+    )
 
 
 @pytest.mark.asyncio
@@ -495,10 +551,14 @@ async def test_aresponses_retries_without_caching_on_prompt_cache_too_small(
         Message(role="user", content=[TextContent(text="Hello")]),
     ]
 
+    call_context = LLMCallContext(
+        prompt_cache_key="cache-abc", session_id="session-xyz"
+    )
     response = await llm.aresponses(
         messages,
         store=False,
         metadata={"trace_id": "abc-123"},
+        call_context=call_context,
     )
 
     assert mock_aresponses.call_count == 2
@@ -507,6 +567,10 @@ async def test_aresponses_retries_without_caching_on_prompt_cache_too_small(
     second_kwargs = mock_aresponses.call_args_list[1].kwargs
     assert second_kwargs.get("store") is False
     assert second_kwargs.get("metadata") == {"trace_id": "abc-123"}
+    assert second_kwargs.get("prompt_cache_key") == call_context.prompt_cache_key
+    assert second_kwargs["extra_headers"]["x-litellm-session-id"] == (
+        call_context.session_id
+    )
 
 
 def _make_wrapped_response_stream_events(text: str = "Hello wrapped stream"):

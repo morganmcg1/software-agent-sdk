@@ -27,6 +27,25 @@ def test_request_scope_wraps_sync_request_methods(method_name):
     assert events == ["enter", "exit"]
 
 
+def test_request_scope_enters_once_for_nested_sync_metadata_resolution(monkeypatch):
+    events: list[str] = []
+
+    def stop_after_metadata(*_args, **_kwargs):
+        raise RuntimeError("stop after metadata resolution")
+
+    monkeypatch.setattr(
+        "openhands.sdk.llm.llm.resolve_provider_metadata_sync", lambda _llm: None
+    )
+    monkeypatch.setattr(LLM, "_prepare_completion_params", stop_after_metadata)
+    llm = LLM(model="openai/gpt-4o")
+    llm.set_request_scope(lambda: recording_scope(events))
+
+    with pytest.raises(RuntimeError, match="stop after metadata resolution"):
+        llm.completion([])
+
+    assert events == ["enter", "exit"]
+
+
 @pytest.mark.parametrize("method_name", ["acompletion", "aresponses"])
 @pytest.mark.asyncio
 async def test_request_scope_wraps_async_request_methods(method_name):
@@ -38,6 +57,40 @@ async def test_request_scope_wraps_async_request_methods(method_name):
         await getattr(llm, method_name)()
 
     assert events == ["enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_request_scope_reentrancy_is_task_local(monkeypatch):
+    events: list[str] = []
+    started = 0
+    both_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def block_metadata(_llm):
+        nonlocal started
+        started += 1
+        if started == 2:
+            both_started.set()
+        await release.wait()
+        return None
+
+    monkeypatch.setattr(
+        "openhands.sdk.llm.llm.aresolve_provider_metadata", block_metadata
+    )
+    llm = LLM(model="openai/gpt-4o")
+    llm.set_request_scope(lambda: recording_scope(events))
+
+    tasks = [
+        asyncio.create_task(llm.aresolve_runtime_metadata(force=True)) for _ in range(2)
+    ]
+    await asyncio.wait_for(both_started.wait(), timeout=1)
+
+    assert events == ["enter", "enter"]
+
+    release.set()
+    await asyncio.gather(*tasks)
+
+    assert events == ["enter", "enter", "exit", "exit"]
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,16 @@ def _make_llm(model: str, usage_id: str) -> LLM:
     return TestLLM.from_messages([], model=model, usage_id=usage_id)
 
 
+def _make_stored_responses_llm(model: str, usage_id: str) -> LLM:
+    return LLM(
+        model=model,
+        usage_id=usage_id,
+        api_mode="responses",
+        responses_store=True,
+        responses_use_previous_response_id=True,
+    )
+
+
 def _message_event(content: str) -> MessageEvent:
     return MessageEvent(
         llm_message=Message(role="user", content=[TextContent(text=content)]),
@@ -378,6 +388,86 @@ def test_switch_llm_swaps_when_store_empty(empty_profile_store):
     assert conv.llm_registry.get("caller-supplied-id").model == "inline-model"
     # Cache-key must be repinned (regression guard for #2918 on the new path).
     assert conv.agent.llm._call_context.prompt_cache_key == str(conv.id)
+
+
+def test_switch_llm_rejects_cross_llm_stored_responses_continuation(
+    empty_profile_store,
+):
+    source_llm = _make_stored_responses_llm("openai/gpt-5.1", "source-responses")
+    conv = LocalConversation(
+        agent=Agent(llm=source_llm, tools=[]),
+        workspace=Path.cwd(),
+    )
+    conv._on_event(
+        MessageEvent(
+            source="agent",
+            llm_message=Message(
+                role="assistant",
+                content=[TextContent(text="source response")],
+            ),
+            llm_response_id="resp_source",
+        )
+    )
+    original_agent = conv.agent
+    original_context = conv.get_llm_call_context()
+    target_llm = _make_stored_responses_llm("openai/gpt-5.1", "target-responses")
+
+    with pytest.raises(ValueError, match="after a response chain has started"):
+        conv.switch_llm(target_llm)
+
+    assert conv.agent is original_agent
+    assert conv.state.agent is original_agent
+    assert conv.get_llm_call_context() == original_context
+    assert "target-responses" not in conv.llm_registry.list_usage_ids()
+
+
+def test_switch_llm_allows_same_stored_responses_llm(empty_profile_store):
+    llm = _make_stored_responses_llm("openai/gpt-5.1", "source-responses")
+    conv = LocalConversation(agent=Agent(llm=llm, tools=[]), workspace=Path.cwd())
+    conv._on_event(
+        MessageEvent(
+            source="agent",
+            llm_message=Message(
+                role="assistant",
+                content=[TextContent(text="source response")],
+            ),
+            llm_response_id="resp_source",
+        )
+    )
+
+    conv.switch_llm(llm)
+
+    assert conv.agent.llm is llm
+    assert conv.get_llm_call_context().previous_response_id == "resp_source"
+
+
+def test_switch_llm_allows_stored_responses_before_chain_starts(empty_profile_store):
+    conv = _make_conversation()
+    target_llm = _make_stored_responses_llm("openai/gpt-5.1", "target-responses")
+
+    conv.switch_llm(target_llm)
+
+    assert conv.agent.llm is target_llm
+    assert conv.get_llm_call_context().previous_response_id is None
+
+
+def test_switch_llm_allows_stateless_target_after_response(empty_profile_store):
+    conv = _make_conversation()
+    conv._on_event(
+        MessageEvent(
+            source="agent",
+            llm_message=Message(
+                role="assistant",
+                content=[TextContent(text="source response")],
+            ),
+            llm_response_id="resp_source",
+        )
+    )
+    target_llm = _make_llm("chat-target", "target-chat")
+
+    conv.switch_llm(target_llm)
+
+    assert conv.agent.llm is target_llm
 
 
 def test_switch_llm_refreshes_llm_condenser_credentials(

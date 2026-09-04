@@ -29,6 +29,19 @@ from openhands.sdk.llm import (
     MetricsSnapshot,
     TextContent,
 )
+from openhands.sdk.llm.llm import LLMCallContext
+
+
+_STATEFUL_CALL_CONTEXT = LLMCallContext(
+    prompt_cache_key="test-prompt-cache-key",
+    session_id="test-session-id",
+    previous_response_id="test-previous-response-id",
+)
+_STATELESS_CALL_CONTEXT = LLMCallContext(
+    prompt_cache_key="test-prompt-cache-key",
+    session_id="test-session-id",
+    preserve_provider_state=False,
+)
 
 
 def message_event(content: str) -> MessageEvent:
@@ -96,6 +109,7 @@ def mock_llm() -> LLM:
 
     mock_llm._metrics = None
     mock_llm._telemetry = None
+    mock_llm._call_context = _STATEFUL_CALL_CONTEXT
 
     # Helper method to set mock response content
     def set_mock_response_content(content: str):
@@ -134,10 +148,17 @@ def test_summarization_uses_responses_api_when_configured(mock_llm: LLM) -> None
 
     assert result.summary == "Summary of forgotten events"
     responses_mock = cast(MagicMock, mock_llm.responses)
-    responses_mock.assert_called_once()
-    assert responses_mock.call_args.kwargs["tools"] == []
-    assert responses_mock.call_args.kwargs["include"] is None
-    assert responses_mock.call_args.kwargs["store"] is False
+    messages = responses_mock.call_args.kwargs["messages"]
+    responses_mock.assert_called_once_with(
+        messages=messages,
+        tools=[],
+        include=None,
+        store=False,
+        add_security_risk_prediction=True,
+        on_token=None,
+        call_context=_STATELESS_CALL_CONTEXT,
+    )
+    assert mock_llm._call_context == _STATEFUL_CALL_CONTEXT
     cast(MagicMock, mock_llm.completion).assert_not_called()
 
 
@@ -155,7 +176,18 @@ async def test_async_summarization_uses_responses_api_when_configured(
     result = await condenser.aget_condensation(View.from_events(events))
 
     assert result.summary == "Summary of forgotten events"
-    cast(AsyncMock, mock_llm.aresponses).assert_awaited_once()
+    responses_mock = cast(AsyncMock, mock_llm.aresponses)
+    messages = responses_mock.call_args.kwargs["messages"]
+    responses_mock.assert_awaited_once_with(
+        messages=messages,
+        tools=[],
+        include=None,
+        store=False,
+        add_security_risk_prediction=True,
+        on_token=None,
+        call_context=_STATELESS_CALL_CONTEXT,
+    )
+    assert mock_llm._call_context == _STATEFUL_CALL_CONTEXT
     cast(MagicMock, mock_llm.acompletion).assert_not_called()
 
 
@@ -342,9 +374,16 @@ def test_get_condensation_does_not_pass_extra_body(mock_llm: LLM) -> None:
     result = condenser.condense(view)
     assert isinstance(result, Condensation)
 
-    # Ensure completion was called without an explicit extra_body kwarg
+    # Assert the complete call so an unsupported extra_body cannot be added.
     completion_mock = cast(MagicMock, mock_llm.completion)
-    assert completion_mock.call_count == 1
+    messages = completion_mock.call_args.kwargs["messages"]
+    completion_mock.assert_called_once_with(
+        messages=messages,
+        tools=[],
+        add_security_risk_prediction=True,
+        on_token=None,
+        call_context=_STATELESS_CALL_CONTEXT,
+    )
 
 
 def test_condense_with_agent_llm(mock_llm: LLM) -> None:
@@ -366,12 +405,17 @@ def test_condense_with_agent_llm(mock_llm: LLM) -> None:
 
     # Verify the condenser still uses its own LLM for summarization
     completion_mock = cast(MagicMock, mock_llm.completion)
-    assert completion_mock.call_count == 1
+    messages = completion_mock.call_args.kwargs["messages"]
+    completion_mock.assert_called_once_with(
+        messages=messages,
+        tools=[],
+        add_security_risk_prediction=True,
+        on_token=None,
+        call_context=_STATELESS_CALL_CONTEXT,
+    )
 
     # Agent LLM should not be called for completion (condenser uses its own LLM)
     assert not agent_llm.completion.called
-    _, kwargs = completion_mock.call_args
-    assert "extra_body" not in kwargs
 
 
 def test_condense_with_token_limit_exceeded(mock_llm: LLM) -> None:
@@ -455,6 +499,26 @@ def test_target_size_limits_retained_events_after_token_condensation(
 
     assert reasons == {Reason.TOKENS}
     assert len(events) - len(result.forgotten_event_ids) + 1 == 40
+
+
+def test_target_size_does_not_block_short_token_heavy_history(
+    mock_llm: LLM,
+) -> None:
+    condenser = LLMSummarizingCondenser(
+        llm=mock_llm,
+        max_size=600,
+        max_tokens=100,
+        target_size=40,
+        keep_first=2,
+    )
+    agent_llm = MagicMock(spec=LLM)
+    agent_llm.effective_max_input_tokens = None
+    agent_llm.get_token_count.return_value = 200
+    view = View.from_events([message_event(f"Event {i}") for i in range(10)])
+
+    result = condenser.get_condensation(view, agent_llm=agent_llm)
+
+    assert result.forgotten_event_ids
 
 
 @pytest.mark.parametrize(

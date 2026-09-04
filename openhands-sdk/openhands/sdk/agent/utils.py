@@ -11,6 +11,7 @@ import subprocess
 import textwrap
 import types
 from collections.abc import Collection
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -718,6 +719,7 @@ def make_llm_completion(
     tools: list[ToolDefinition] | None = None,
     on_token: ConversationTokenCallbackType | None = None,
     call_context: LLMCallContext | None = None,
+    preserve_provider_state: bool = False,
 ) -> LLMResponse:
     """Make an LLM completion call with the provided messages and tools.
 
@@ -727,6 +729,8 @@ def make_llm_completion(
         tools: Optional list of tools to provide to the LLM
         on_token: Optional callback for streaming token updates
         call_context: Per-conversation context for cache/session affinity.
+        preserve_provider_state: Continue provider-managed response or compaction
+            state. The main agent enables this; utility calls remain stateless.
 
     Returns:
         LLMResponse from the LLM completion call
@@ -743,15 +747,23 @@ def make_llm_completion(
         Summary field is always added to tool schemas for transparency and
         explainability of agent actions.
     """
+    request_context = call_context or llm._call_context
+    if not preserve_provider_state:
+        request_context = replace(
+            request_context,
+            previous_response_id=None,
+            preserve_provider_state=False,
+        )
+
     if llm.uses_responses_api():
         return llm.responses(
             messages=messages,
             tools=tools or [],
             include=None,
-            store=None,
+            store=None if preserve_provider_state else False,
             add_security_risk_prediction=True,
             on_token=on_token,
-            call_context=call_context,
+            call_context=request_context,
         )
     else:
         return llm.completion(
@@ -759,7 +771,7 @@ def make_llm_completion(
             tools=tools or [],
             add_security_risk_prediction=True,
             on_token=on_token,
-            call_context=call_context,
+            call_context=request_context,
         )
 
 
@@ -817,17 +829,26 @@ async def amake_llm_completion(
     tools: list[ToolDefinition] | None = None,
     on_token: AnyTokenCallbackType | None = None,
     call_context: LLMCallContext | None = None,
+    preserve_provider_state: bool = False,
 ) -> LLMResponse:
     """Async variant of :func:`make_llm_completion`."""
+    request_context = call_context or llm._call_context
+    if not preserve_provider_state:
+        request_context = replace(
+            request_context,
+            previous_response_id=None,
+            preserve_provider_state=False,
+        )
+
     if llm.uses_responses_api():
         return await llm.aresponses(
             messages=messages,
             tools=tools or [],
             include=None,
-            store=None,
+            store=None if preserve_provider_state else False,
             add_security_risk_prediction=True,
             on_token=on_token,
-            call_context=call_context,
+            call_context=request_context,
         )
     else:
         return await llm.acompletion(
@@ -835,5 +856,5 @@ async def amake_llm_completion(
             tools=tools or [],
             add_security_risk_prediction=True,
             on_token=on_token,
-            call_context=call_context,
+            call_context=request_context,
         )

@@ -27,6 +27,7 @@ from openhands.sdk.llm import (
     Message,
     TextContent,
 )
+from openhands.sdk.llm.llm import LLMCallContext
 from openhands.sdk.tool.schema import Action
 from openhands.sdk.tool.tool import ToolDefinition
 
@@ -850,7 +851,14 @@ def test_completion_retries_without_caching_on_prompt_cache_too_small(
 
     messages = [Message(role="user", content=[TextContent(text="Hello")])]
     # Pass a kwarg via **kwargs to verify _caller_kwargs preservation on retry.
-    response = llm.completion(messages=messages, metadata={"trace": "sync"})
+    call_context = LLMCallContext(
+        prompt_cache_key="cache-abc", session_id="session-xyz"
+    )
+    response = llm.completion(
+        messages=messages,
+        metadata={"trace": "sync"},
+        call_context=call_context,
+    )
 
     # Should succeed after retry without caching
     assert response.raw_response == mock_response
@@ -884,6 +892,10 @@ def test_completion_retries_without_caching_on_prompt_cache_too_small(
     # Caller kwargs preserved on the retry — without _caller_kwargs the retry
     # would silently drop them.
     assert second_call_kwargs.get("metadata") == {"trace": "sync"}
+    assert second_call_kwargs.get("prompt_cache_key") == call_context.prompt_cache_key
+    assert second_call_kwargs["extra_headers"]["x-litellm-session-id"] == (
+        call_context.session_id
+    )
 
 
 @pytest.mark.asyncio
@@ -925,7 +937,14 @@ async def test_acompletion_retries_without_caching_on_prompt_cache_too_small(
 
     messages = [Message(role="user", content=[TextContent(text="Hello")])]
     # Pass a kwarg via **kwargs to verify _caller_kwargs preservation on retry.
-    response = await llm.acompletion(messages=messages, metadata={"trace": "abc"})
+    call_context = LLMCallContext(
+        prompt_cache_key="cache-abc", session_id="session-xyz"
+    )
+    response = await llm.acompletion(
+        messages=messages,
+        metadata={"trace": "abc"},
+        call_context=call_context,
+    )
 
     # Should succeed after retry without caching
     assert response.raw_response == mock_response
@@ -959,6 +978,10 @@ async def test_acompletion_retries_without_caching_on_prompt_cache_too_small(
     # Caller kwargs preserved on the retry — without _caller_kwargs the retry
     # would silently drop them.
     assert second_call_kwargs.get("metadata") == {"trace": "abc"}
+    assert second_call_kwargs.get("prompt_cache_key") == call_context.prompt_cache_key
+    assert second_call_kwargs["extra_headers"]["x-litellm-session-id"] == (
+        call_context.session_id
+    )
 
 
 # ---------------------------------------------------------------------------

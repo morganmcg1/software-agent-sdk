@@ -200,8 +200,14 @@ def test_local_conversation_ask_agent_copies_llm_config(mock_completion, tmp_pat
         model="gpt-4o-mini",
         api_key=SecretStr("test-key"),
         usage_id="test-llm",
+        api_mode="chat",
         native_tool_calling=False,  # Non-default value
         caching_prompt=False,  # Non-default value
+        reasoning_context="all_turns",
+        responses_store=True,
+        responses_use_previous_response_id=True,
+        responses_compact_threshold=100,
+        anthropic_compact_threshold=50_000,
     )
     agent = Agent(llm=llm, tools=[])
 
@@ -222,6 +228,11 @@ def test_local_conversation_ask_agent_copies_llm_config(mock_completion, tmp_pat
     # Verify the specific custom values are copied
     assert ask_agent_llm.native_tool_calling is False
     assert ask_agent_llm.caching_prompt is False
+    assert ask_agent_llm.reasoning_context == "current_turn"
+    assert ask_agent_llm.responses_store is False
+    assert ask_agent_llm.responses_use_previous_response_id is False
+    assert ask_agent_llm.responses_compact_threshold is None
+    assert ask_agent_llm.anthropic_compact_threshold is None
 
 
 def create_mock_model_response(content: str) -> ModelResponse:
