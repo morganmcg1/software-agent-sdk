@@ -14,6 +14,7 @@ from openhands.agent_server.persistence import (
     PERSISTED_SETTINGS_SCHEMA_VERSION,
     FileSettingsStore,
     PersistedSettings,
+    get_llm_profile_store,
     reset_stores,
 )
 from openhands.agent_server.persistence.models import _deep_merge
@@ -625,6 +626,8 @@ def test_patch_settings_updates_llm_config(client_with_settings):
 
 def test_patch_settings_updates_active_profile(client_with_settings):
     """PATCH /api/settings can update and clear the active LLM profile."""
+    get_llm_profile_store().save("fast-profile", LLM(model="gpt-4o-mini"))
+
     response = client_with_settings.patch(
         "/api/settings",
         json={"active_profile": "fast-profile"},
@@ -662,6 +665,8 @@ def test_patch_settings_rejects_invalid_active_profile(client_with_settings):
 
 def test_patch_settings_active_agent_profile_id_independent(client_with_settings):
     """active_agent_profile_id sets/clears independently of active_profile."""
+    get_llm_profile_store().save("fast-profile", LLM(model="gpt-4o-mini"))
+
     agent_id = "12345678-1234-1234-1234-1234567890ab"
     set_response = client_with_settings.patch(
         "/api/settings",
@@ -685,6 +690,100 @@ def test_patch_settings_active_agent_profile_id_independent(client_with_settings
     refetch = client_with_settings.get("/api/settings").json()
     assert refetch["active_agent_profile_id"] is None
     assert refetch["active_profile"] == "fast-profile"
+
+
+def test_patch_settings_active_profile_applies_llm(client_with_settings):
+    """PATCH active_profile applies that profile's LLM (#4314)."""
+    get_llm_profile_store().save("fast-profile", LLM(model="claude-haiku"))
+
+    response = client_with_settings.patch(
+        "/api/settings",
+        json={"active_profile": "fast-profile"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_profile"] == "fast-profile"
+    assert body["agent_settings"]["llm"]["model"] == "claude-haiku"
+
+    refetch = client_with_settings.get("/api/settings").json()
+    assert refetch["active_profile"] == "fast-profile"
+    assert refetch["agent_settings"]["llm"]["model"] == "claude-haiku"
+
+
+def test_patch_settings_active_profile_applies_encrypted_api_key(
+    client_with_settings, secret_key
+):
+    """Applying a profile carries its at-rest-encrypted api_key through PATCH."""
+    cipher = Cipher(secret_key)
+    get_llm_profile_store().save(
+        "secure-profile",
+        LLM(model="claude-haiku", api_key=SecretStr("sk-secret")),
+        include_secrets=True,
+        cipher=cipher,
+    )
+
+    response = client_with_settings.patch(
+        "/api/settings",
+        json={"active_profile": "secure-profile"},
+    )
+    assert response.status_code == 200
+
+    exposed = client_with_settings.get(
+        "/api/settings", headers={"X-Expose-Secrets": "plaintext"}
+    ).json()
+    assert exposed["agent_settings"]["llm"]["model"] == "claude-haiku"
+    assert exposed["agent_settings"]["llm"]["api_key"] == "sk-secret"
+    assert exposed["llm_api_key_is_set"] is True
+
+
+def test_patch_settings_switching_active_profile_updates_llm(client_with_settings):
+    """Switching active_profile re-applies the new profile's LLM."""
+    get_llm_profile_store().save("profile-a", LLM(model="model-a"))
+    get_llm_profile_store().save("profile-b", LLM(model="model-b"))
+
+    client_with_settings.patch("/api/settings", json={"active_profile": "profile-a"})
+    response = client_with_settings.patch(
+        "/api/settings", json={"active_profile": "profile-b"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_profile"] == "profile-b"
+    assert body["agent_settings"]["llm"]["model"] == "model-b"
+
+
+def test_patch_settings_active_profile_not_found_returns_404(client_with_settings):
+    """PATCH active_profile with an unknown profile name 404s."""
+    response = client_with_settings.patch(
+        "/api/settings",
+        json={"active_profile": "does-not-exist"},
+    )
+
+    assert response.status_code == 404
+
+    refetch = client_with_settings.get("/api/settings").json()
+    assert refetch["active_profile"] is None
+
+
+def test_patch_settings_explicit_llm_diff_overrides_profile_autoload(
+    client_with_settings,
+):
+    """An explicit agent_settings_diff.llm overrides profile autoload."""
+    get_llm_profile_store().save("fast-profile", LLM(model="claude-haiku"))
+
+    response = client_with_settings.patch(
+        "/api/settings",
+        json={
+            "active_profile": "fast-profile",
+            "agent_settings_diff": {"llm": {"model": "explicitly-chosen-model"}},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_profile"] == "fast-profile"
+    assert body["agent_settings"]["llm"]["model"] == "explicitly-chosen-model"
 
 
 def test_patch_settings_rejects_malformed_active_agent_profile_id(client_with_settings):
@@ -1000,7 +1099,8 @@ def test_patch_settings_empty_payload_returns_400(client_with_settings):
     assert response.json()["detail"] == (
         "At least one of agent_settings_diff, "
         "conversation_settings_diff, misc_settings_diff, "
-        "active_profile, or active_agent_profile_id must be provided"
+        "active_profile, active_agent_profile_id, or active_meta_profile "
+        "must be provided"
     )
 
 
@@ -1544,6 +1644,36 @@ def test_create_and_list_secrets(client_with_settings):
     assert secrets[0]["name"] == "MY_SECRET"
     assert secrets[0]["description"] == "Test"
     assert "value" not in secrets[0]
+
+
+def test_list_secrets_scoped_by_agent_profile(client_with_settings):
+    for name in ("ALLOWED", "EXCLUDED"):
+        client_with_settings.put(
+            "/api/settings/secrets", json={"name": name, "value": "value"}
+        )
+    create = client_with_settings.post(
+        "/api/agent-profiles/scoped",
+        json={"llm_profile_ref": "default", "secret_refs": ["ALLOWED"]},
+    )
+    assert create.status_code == 201
+    profile_id = client_with_settings.get("/api/agent-profiles/scoped").json()[
+        "profile"
+    ]["id"]
+
+    response = client_with_settings.get(
+        "/api/settings/secrets", params={"agent_profile_id": profile_id}
+    )
+
+    assert response.status_code == 200
+    assert [secret["name"] for secret in response.json()["secrets"]] == ["ALLOWED"]
+
+
+def test_list_secrets_rejects_unknown_agent_profile(client_with_settings):
+    response = client_with_settings.get(
+        "/api/settings/secrets", params={"agent_profile_id": "missing"}
+    )
+
+    assert response.status_code == 404
 
 
 def test_get_secret_value(client_with_settings):

@@ -19,6 +19,8 @@ permissions:
 
 jobs:
     check-examples:
+        # This job coordinates examples with the upstream-owned OpenHands/docs repo.
+        if: github.repository == 'OpenHands/software-agent-sdk'
         runs-on: ubuntu-latest
         steps:
             - name: Checkout agent-sdk repository
@@ -46,7 +48,7 @@ jobs:
                   ref: main
 
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@v7
               with:
                   python-version: '3.13'
 

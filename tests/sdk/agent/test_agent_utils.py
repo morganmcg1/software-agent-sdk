@@ -1,8 +1,4 @@
-"""Tests for agent utility functions.
-
-This module tests the prepare_llm_messages and make_llm_completion utility
-functions that are used by the agent for message preparation and LLM calls.
-"""
+"""Tests for agent message preparation utilities."""
 
 from unittest.mock import Mock, patch
 
@@ -11,7 +7,6 @@ from pydantic import Field
 
 from openhands.sdk.agent.utils import (
     aprepare_llm_messages,
-    make_llm_completion,
     prepare_llm_messages,
 )
 from openhands.sdk.context.condenser.base import CondenserBase
@@ -26,26 +21,17 @@ from openhands.sdk.event import (
 from openhands.sdk.event.base import LLMConvertibleEvent
 from openhands.sdk.llm import (
     LLM,
-    LLMResponse,
     Message,
     MessageToolCall,
     TextContent,
 )
 from openhands.sdk.llm.llm import LLMCallContext
-from openhands.sdk.tool import Action, Observation, ToolDefinition
+from openhands.sdk.tool import Action, Observation
 
 
 # ---------------------------------------------------------------------------
 # Test fixtures and helpers
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def mock_llm():
-    """Create a mock LLM for testing."""
-    llm = Mock(spec=LLM)
-    llm.uses_responses_api.return_value = False
-    return llm
 
 
 @pytest.fixture
@@ -117,16 +103,6 @@ class MockAgentUtilsObservation(Observation):
         return [TextContent(text=self.result)]
 
 
-class MockAgentUtilsTool(
-    ToolDefinition[MockAgentUtilsAction, MockAgentUtilsObservation]
-):
-    """Mock tool definition for agent utils testing."""
-
-    @classmethod
-    def create(cls, conv_state=None, **params):
-        return [cls(**params)]
-
-
 def action_event(call_id: str, response_id: str, *, executable: bool) -> ActionEvent:
     tool_call = MessageToolCall(
         id=call_id,
@@ -182,18 +158,6 @@ def interleaved_tool_errors() -> tuple[str, list[LLMConvertibleEvent]]:
             ]
         )
     return response_id, events
-
-
-@pytest.fixture
-def sample_tools():
-    """Create sample tool definitions for testing."""
-    return [
-        MockAgentUtilsTool(
-            description="A test tool for agent utils",
-            action_type=MockAgentUtilsAction,
-            observation_type=MockAgentUtilsObservation,
-        )
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -388,252 +352,3 @@ def test_prepare_stored_response_preserves_successful_tool_outputs(
     assert responses_output_call_ids(messages) == [
         f"call_{index}" for index in range(batch_size)
     ]
-
-
-# ---------------------------------------------------------------------------
-# Tests for make_llm_completion
-# ---------------------------------------------------------------------------
-
-
-def test_make_llm_completion_with_completion_api(mock_llm, sample_messages):
-    """Test make_llm_completion using completion API."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, sample_messages)
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.uses_responses_api.assert_called_once()
-    mock_llm.completion.assert_called_once_with(
-        messages=sample_messages,
-        tools=[],
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-    mock_llm.responses.assert_not_called()
-
-
-def test_make_llm_completion_with_responses_api(mock_llm, sample_messages):
-    """Test make_llm_completion using responses API."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = True
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.responses.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, sample_messages)
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.uses_responses_api.assert_called_once()
-    mock_llm.responses.assert_called_once_with(
-        messages=sample_messages,
-        tools=[],
-        include=None,
-        store=None,
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-    mock_llm.completion.assert_not_called()
-
-
-def test_make_llm_completion_with_tools_completion_api(
-    mock_llm, sample_messages, sample_tools
-):
-    """Test make_llm_completion with tools using completion API."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, sample_messages, tools=sample_tools)
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.uses_responses_api.assert_called_once()
-    mock_llm.completion.assert_called_once_with(
-        messages=sample_messages,
-        tools=sample_tools,
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-
-
-def test_make_llm_completion_with_tools_responses_api(
-    mock_llm, sample_messages, sample_tools
-):
-    """Test make_llm_completion with tools using responses API."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = True
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.responses.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, sample_messages, tools=sample_tools)
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.uses_responses_api.assert_called_once()
-    mock_llm.responses.assert_called_once_with(
-        messages=sample_messages,
-        tools=sample_tools,
-        include=None,
-        store=None,
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-
-
-def test_make_llm_completion_with_none_tools(mock_llm, sample_messages):
-    """Test make_llm_completion with None tools parameter."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, sample_messages, tools=None)
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.completion.assert_called_once_with(
-        messages=sample_messages,
-        tools=[],
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-
-
-def test_make_llm_completion_with_empty_tools_list(mock_llm, sample_messages):
-    """Test make_llm_completion with empty tools list."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, sample_messages, tools=[])
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.completion.assert_called_once_with(
-        messages=sample_messages,
-        tools=[],
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-
-
-def test_make_llm_completion_empty_messages(mock_llm):
-    """Test make_llm_completion with empty messages list."""
-    # Setup mock
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    # Call function
-    result = make_llm_completion(mock_llm, [])
-
-    # Verify results
-    assert result == mock_response
-    mock_llm.completion.assert_called_once_with(
-        messages=[],
-        tools=[],
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Integration tests
-# ---------------------------------------------------------------------------
-
-
-@patch("openhands.sdk.event.base.LLMConvertibleEvent.events_to_messages")
-def test_prepare_llm_messages_and_make_llm_completion_integration(
-    mock_events_to_messages, sample_events, sample_messages, mock_llm
-):
-    """Test integration between prepare_llm_messages and make_llm_completion."""
-    mock_events_to_messages.return_value = sample_messages
-    view = View(events=sample_events)
-
-    # Setup mocks for make_llm_completion
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    # Call functions in sequence (simulating real usage)
-    messages = prepare_llm_messages(view)
-    result = make_llm_completion(mock_llm, messages)
-
-    # Verify results
-    assert messages == sample_messages
-    assert result == mock_response
-    mock_llm.completion.assert_called_once_with(
-        messages=sample_messages,
-        tools=[],
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-
-
-def test_make_llm_completion_api_selection():
-    """Test that make_llm_completion correctly selects between completion and responses APIs."""  # noqa: E501
-    # Test completion API selection
-    mock_llm = Mock(spec=LLM)
-    mock_llm.uses_responses_api.return_value = False
-    mock_response = Mock(spec=LLMResponse)
-    mock_llm.completion.return_value = mock_response
-
-    messages = [
-        Message(
-            role="user",
-            content=[TextContent(text="Hello, test message")],
-        )
-    ]
-
-    result = make_llm_completion(mock_llm, messages)
-
-    assert result == mock_response
-    mock_llm.uses_responses_api.assert_called_once()
-    mock_llm.completion.assert_called_once_with(
-        messages=messages,
-        tools=[],
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-    mock_llm.responses.assert_not_called()
-
-    # Reset mocks and test responses API selection
-    mock_llm.reset_mock()
-    mock_llm.uses_responses_api.return_value = True
-    mock_llm.responses.return_value = mock_response
-
-    result = make_llm_completion(mock_llm, messages)
-
-    assert result == mock_response
-    mock_llm.uses_responses_api.assert_called_once()
-    mock_llm.responses.assert_called_once_with(
-        messages=messages,
-        tools=[],
-        include=None,
-        store=None,
-        add_security_risk_prediction=True,
-        on_token=None,
-        call_context=None,
-    )
-    mock_llm.completion.assert_not_called()

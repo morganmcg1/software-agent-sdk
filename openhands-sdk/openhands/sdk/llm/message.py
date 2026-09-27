@@ -1,7 +1,7 @@
 import json
 from abc import abstractmethod
 from collections.abc import Sequence
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from litellm import ChatCompletionMessageToolCall, ResponseFunctionToolCall
 from litellm.types.responses.main import (
@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from openhands.sdk.logger import get_logger
 from openhands.sdk.utils import DEFAULT_TEXT_CONTENT_LIMIT, maybe_truncate
 from openhands.sdk.utils.deprecation import handle_deprecated_model_fields
+from openhands.sdk.utils.masking import PreserveDataUrls
 
 
 logger = get_logger(__name__)
@@ -227,7 +228,7 @@ class TextContent(BaseContent):
 
 class ImageContent(BaseContent):
     type: Literal["image"] = "image"
-    image_urls: list[str]
+    image_urls: Annotated[list[str], PreserveDataUrls()]
 
     def to_llm_dict(
         self,
@@ -541,7 +542,7 @@ class Message(BaseModel):
 
         rc = getattr(message, "reasoning_content", None)
         thinking_blocks = getattr(message, "thinking_blocks", None)
-        provider_fields = getattr(message, "provider_specific_fields", None) or {}
+        provider_fields = message.provider_specific_fields or {}
         raw_compaction_blocks = provider_fields.get("compaction_blocks", [])
         if any(not block.get("content") for block in raw_compaction_blocks):
             raise ValueError(

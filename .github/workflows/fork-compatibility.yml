@@ -1,0 +1,44 @@
+---
+name: Fork compatibility
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        paths:
+            - openhands-sdk/**
+            - openhands-tools/**
+            - tests/sdk/**
+            - tests/tools/file_editor/**
+            - pyproject.toml
+            - uv.lock
+            - .github/workflows/fork-compatibility.yml
+
+permissions:
+    contents: read
+
+jobs:
+    python-314:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        env:
+            LITELLM_LOCAL_MODEL_COST_MAP: 'true'
+            OPENHANDS_SUPPRESS_BANNER: '1'
+        steps:
+            - uses: actions/checkout@v7
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+              with:
+                  python-version: '3.14'
+                  enable-cache: true
+            - name: Install locked workspace
+              run: uv sync --locked --dev --python 3.14
+            - name: Verify provider and fork behavior
+              run: |
+                  uv run --no-sync python -m pytest -q \
+                    tests/sdk/llm \
+                    tests/sdk/agent \
+                    tests/sdk/context/condenser \
+                    tests/sdk/conversation/local/test_call_context_isolation.py \
+                    tests/sdk/subagent \
+                    tests/sdk/tool/test_mcp_schema.py \
+                    tests/tools/file_editor/utils/test_encoding.py
