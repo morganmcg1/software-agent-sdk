@@ -1,10 +1,21 @@
+"""Capability-detection tests.
+
+LiteLLM fetches ``model_prices_and_context_window.json`` from its upstream
+``main`` branch at import time, so pinning litellm in ``uv.lock`` pins its code
+but not its model database — and the SDK sets no override, in tests or in
+production. These tests therefore run against data that changes without us.
+
+Assert what the SDK owns: its override lists, its model-name normalization, and
+that a routing wrapper does not change the answer. A bare capability value with
+no SDK rule behind it is upstream's to change, and pinning one here fails the
+day it does (#4877).
+"""
+
 import pytest
 from litellm.utils import supports_vision
 
 from openhands.sdk.llm.utils.model_features import (
-    REASONING_EFFORT_MODEL_OVERRIDES,
     VISION_MODEL_OVERRIDES,
-    _normalized_supported_openai_params,
     get_features,
     model_matches,
 )
@@ -42,22 +53,18 @@ def test_model_matches(name, pattern, expected):
         ("gemini-3-flash-preview", True),
         # GPT-5 family
         ("gpt-5.2", True),
-        ("gpt-5.2-codex", True),
         ("gpt-5.4", True),
         ("gpt-4o", False),
         ("claude-3-5-sonnet", False),
         ("gemini-1.5-pro", False),
         # DeepSeek Reasoner
         ("deepseek/deepseek-reasoner", True),
-        # Moonshot Kimi thinking models expose reasoning content but do not
-        # accept the reasoning_effort parameter.
-        ("moonshot/kimi-k2.5", False),
-        ("moonshot/kimi-k2-thinking", False),
-        ("litellm_proxy/moonshot/kimi-k2-thinking", False),
-        # OpenRouter docs list these as reasoning models, but LiteLLM capability
-        # metadata does not currently mark them as reasoning-capable.
+        # Provider support follows LiteLLM's current route metadata.
+        ("moonshot/kimi-k2.5", True),
+        ("moonshot/kimi-k2-thinking", True),
+        ("litellm_proxy/moonshot/kimi-k2-thinking", True),
         ("openrouter/moonshotai/kimi-k2.5", False),
-        ("openrouter/moonshotai/kimi-k2-thinking", False),
+        ("openrouter/moonshotai/kimi-k2-thinking", True),
         # OpenRouter reasoning-capable models per LiteLLM metadata
         ("openrouter/deepseek/deepseek-r1", True),
         ("openrouter/anthropic/claude-opus-4.5", True),
@@ -148,6 +155,11 @@ def test_extended_thinking_support(model, expected_extended_thinking):
         ("claude-opus-5", True),
         ("anthropic/claude-opus-5", True),
         ("litellm_proxy/anthropic/claude-opus-5", True),
+        # claude-sonnet-5 is not matched by any claude-sonnet-4* entry and must
+        # be listed explicitly, same as claude-fable-5.
+        ("claude-sonnet-5", True),
+        ("anthropic/claude-sonnet-5", True),
+        ("litellm_proxy/anthropic/claude-sonnet-5", True),
         # User-facing model names (no provider prefix)
         ("anthropic.claude-3-5-sonnet-20241022", True),
         ("anthropic.claude-3-haiku-20240307", True),
@@ -410,14 +422,6 @@ def test_litellm_vision_support_is_exposed_as_model_feature(model: str):
     assert get_features(model).supports_vision is True
 
 
-def test_reasoning_effort_overrides_are_not_redundant():
-    for pattern, litellm_model in REASONING_EFFORT_MODEL_OVERRIDES.items():
-        params = _normalized_supported_openai_params(litellm_model)
-        assert "reasoning_effort" not in params, (
-            f"Remove {pattern!r}: LiteLLM now supports {litellm_model!r}"
-        )
-
-
 def test_vision_overrides_are_not_redundant():
     for pattern, litellm_model in VISION_MODEL_OVERRIDES.items():
         assert not supports_vision(litellm_model), (
@@ -462,8 +466,14 @@ def test_supports_stop_words_false_models(model):
         ("openai/gpt-5.1-codex-mini", True),
         ("gpt-5", True),
         ("gpt-5.2", True),
-        ("gpt-5.2-codex", True),
         ("openai/gpt-5-mini", True),
+        # GPT-6 family rejects function tools + reasoning_effort on
+        # /v1/chat/completions; route via /v1/responses (saas-deploy #1144).
+        ("gpt-6-sol", True),
+        ("gpt-6-luna", True),
+        ("gpt-6-astra", True),
+        ("openai/gpt-6-sol", True),
+        ("litellm_proxy/gpt-6-luna", True),
         ("codex-mini-latest", True),
         ("openai/codex-mini-latest", True),
         ("gpt-4o", False),
@@ -497,7 +507,6 @@ def test_force_string_serializer_full_model_names():
         ("gpt-5", True),
         # New GPT-5.2 family should support extended retention
         ("gpt-5.2", True),
-        ("gpt-5.2-codex", True),
         ("openai/gpt-5.2-chat-latest", True),
         ("openai/gpt-5.2-pro", True),
         ("openai/gpt-5.6", False),

@@ -7,6 +7,7 @@ from typing import Any, Literal
 from litellm import get_supported_openai_params
 from litellm.utils import supports_vision as litellm_supports_vision
 
+from openhands.sdk.llm.utils.litellm_provider import LLMProvider
 from openhands.sdk.llm.utils.openhands_provider import OPENHANDS_PROVIDER_PREFIX
 
 
@@ -88,6 +89,9 @@ def _normalize_model_for_litellm(model: str | None) -> str | None:
             normalized = normalized.removeprefix(prefix)
             break
 
+    if normalized == "kimi-k3":
+        return "moonshot/kimi-k3"
+
     return normalized
 
 
@@ -98,16 +102,12 @@ def _normalized_supported_openai_params(model: str | None) -> frozenset[str]:
     if not normalized:
         return frozenset()
 
+    provider = LLMProvider.from_model(model=normalized, api_base=None)
     params = get_supported_openai_params(
-        model=normalized,
-        custom_llm_provider=None,
+        model=provider.model,
+        custom_llm_provider=provider.name,
     )
     return frozenset(params or ())
-
-
-REASONING_EFFORT_MODEL_OVERRIDES = {
-    "kimi-k3": "moonshot/kimi-k3",
-}
 
 
 EXTENDED_THINKING_MODELS: list[str] = [
@@ -136,6 +136,10 @@ PROMPT_CACHE_MODELS: list[str] = [
     "claude-opus-4-8",
     # https://platform.claude.com/docs/en/build-with-claude/prompt-caching
     "claude-opus-5",
+    # Claude Sonnet 5 supports prompt caching but is not covered by any
+    # "claude-sonnet-4*" entry above; without this, every input token bills
+    # uncached, which cancels the tier's price advantage on agent workloads.
+    "claude-sonnet-5",
     # https://www.anthropic.com/news/claude-fable-5
     "claude-fable-5",
     # Do NOT add Gemini: explicit cache_control markers freeze its cache at the
@@ -183,9 +187,15 @@ SUPPORTS_STOP_WORDS_FALSE_MODELS: list[str] = [
 ]
 
 # Models that should use the OpenAI Responses API path by default
+# NOTE: model_matches uses case-insensitive substring matching, so a bare family
+# token like "gpt-5" / "gpt-6" covers all variants (mini, sol, luna, astra, ...).
 RESPONSES_API_MODELS: list[str] = [
     # OpenAI GPT-5 family (includes mini variants)
     "gpt-5",
+    # OpenAI GPT-6 family (gpt-6-sol, gpt-6-luna, gpt-6-astra, ...). These reject
+    # function tools + reasoning_effort on /v1/chat/completions; /v1/responses
+    # supports both. See saas-deploy #1144.
+    "gpt-6",
     # OpenAI Codex (uses Responses API)
     "codex-mini-latest",
 ]
@@ -216,17 +226,16 @@ SEND_REASONING_CONTENT_MODELS: list[str] = [
     "deepseek/deepseek-reasoner",
     "deepseek/deepseek-v4-pro",  # Dual-mode (Thinking/Non-Thinking)
     "deepseek/deepseek-v4-flash",  # Dual-mode (Thinking/Non-Thinking)
+    "deepseek/deepseek-v4.1-flash",  # Dual-mode (Thinking/Non-Thinking)
 ]
 
 # Match token -> canonical LiteLLM ID for vision metadata overrides.
-VISION_MODEL_OVERRIDES = {"kimi-k3": "moonshot/kimi-k3"}
+VISION_MODEL_OVERRIDES: dict[str, str] = {}
 
 
 @cache
 def _model_supports_vision(model: str | None) -> bool:
-    """Return whether LiteLLM or our override list marks the model as visual."""
-    if model and model_matches(model, VISION_MODEL_OVERRIDES.keys()):
-        return True
+    """Return whether LiteLLM marks the model as visual."""
     normalized = _normalize_model_for_litellm(model)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -360,10 +369,7 @@ def get_features(
         overrides=overrides,
         metadata=model_info,
         metadata_key="supports_reasoning",
-        fallback=(
-            model_matches(model, REASONING_EFFORT_MODEL_OVERRIDES)
-            or "reasoning_effort" in supported_params
-        ),
+        fallback="reasoning_effort" in supported_params,
     )
     thinking_mode = _thinking_mode(model, model_info, overrides)
     supports_sampling_params = _optional_bool(overrides, "supports_sampling_params")

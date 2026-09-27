@@ -11,18 +11,18 @@ Remove an entry when upstream provides the same behavioral contract.
 ## Baseline
 
 - Upstream baseline:
-  [v1.40.0](https://github.com/OpenHands/software-agent-sdk/tree/v1.40.0)
-  ([2f276539](https://github.com/OpenHands/software-agent-sdk/commit/2f27653959f7596769427ee4657247b32c94504e))
+  [v1.49.6](https://github.com/OpenHands/software-agent-sdk/tree/v1.49.6)
+  ([fcc102a6](https://github.com/OpenHands/software-agent-sdk/commit/fcc102a697874d54a357e36004e02c95040dbdc0))
 - Fork branch:
   [morganmcg1/software-agent-sdk:main](https://github.com/morganmcg1/software-agent-sdk/tree/main)
 
 Compare the fork against its incorporated upstream baseline:
 
 ~~~bash
-git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.40.0
-git log --oneline v1.40.0..main
-git diff --stat v1.40.0..main
-git diff v1.40.0..main -- openhands-sdk openhands-tools
+git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.49.6
+git log --oneline v1.49.6..main
+git diff --stat v1.49.6..main
+git diff v1.49.6..main -- openhands-sdk openhands-tools
 ~~~
 
 ## Major feature changes
@@ -38,7 +38,8 @@ the complete local OpenHands event log.
   <code>responses_compact_threshold</code> enable stored response continuation
   and provider compaction. The latest response ID is recovered after process
   restart. Continued calls send current system instructions and only input
-  created after the stored response boundary.
+  created after the stored response boundary. Tool failures between parallel
+  actions from that response remain in the next request.
 - **Anthropic Messages:** <code>anthropic_compact_threshold</code> enables
   native compaction. The provider's opaque compaction block survives tool
   actions, parallel calls, serialization, and process restarts, then is
@@ -47,11 +48,16 @@ the complete local OpenHands event log.
   chain is active, preventing competing summaries. An independently configured
   Responses-mode summarizing condenser still uses Responses with
   <code>store=False</code>.
+- Async steps retain the conversation state lock during model requests when
+  either provider-managed chain is active. This keeps new user messages after
+  the response event that defines the next continuation boundary. Other modes
+  retain upstream's ability to accept messages while the model request runs.
 
 Source commits:
 [29e8d30c](https://github.com/morganmcg1/software-agent-sdk/commit/29e8d30c),
 [91620be1](https://github.com/morganmcg1/software-agent-sdk/commit/91620be1),
-[afb3639c](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c).
+[afb3639c](https://github.com/morganmcg1/software-agent-sdk/commit/afb3639c),
+[5bc6c747](https://github.com/morganmcg1/software-agent-sdk/commit/5bc6c7478e35904b9cfc08be18c7e8e8a7bfd1e3).
 
 ### Token-aware local condensation
 
@@ -121,6 +127,18 @@ legacy-encoding detection.
 Source commit:
 [06e229d2](https://github.com/morganmcg1/software-agent-sdk/commit/06e229d2).
 
+### Runtime scopes for model requests
+
+<code>LLM.set_request_scope()</code> binds a runtime context manager around
+each logical model request, including retries, for synchronous and asynchronous
+Chat Completions and Responses calls. Copied LLM profiles share the same scope
+factory. The hook is not serialized. Senpai uses it to track active inference
+across parent agents and delegated agents.
+
+Source commits:
+[a3f5bb8e](https://github.com/morganmcg1/software-agent-sdk/commit/a3f5bb8ec619ab34dbc3acb55e1e98abbb670d50),
+[f6913427](https://github.com/morganmcg1/software-agent-sdk/commit/f69134273ee3a31a233d6201786570eb9c4c141b).
+
 ## Packaging difference
 
 ### Optional Laminar observability
@@ -130,6 +148,35 @@ remains available through <code>openhands-sdk[laminar]</code>.
 
 Source commit:
 [527771ce](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce).
+
+## Compatibility with upstream 1.49.6
+
+The merge retains upstream's faster event persistence, concurrent LLM requests,
+bounded asynchronous shutdown, stronger secret masking, subscription credential
+refresh, and provider context-limit handling.
+
+Capability lookup separates the provider from the model name before querying
+LiteLLM 1.102.1. This prevents known models such as <code>openai/gpt-4o-mini</code>
+from receiving reasoning options through LiteLLM's unknown-model defaults.
+
+The summarizing condenser now uses upstream's <code>generate</code> and
+<code>agenerate</code> dispatch with <code>store=False</code>. This replaces the
+fork's older Responses dispatch wrappers and also retains upstream subscription
+support. Agent requests defer the storage choice to the configured LLM so
+stored Responses chains remain enabled.
+
+The partial exception is upstream's
+[mid-request message receipt](https://github.com/OpenHands/software-agent-sdk/pull/4194).
+It remains enabled for modes without provider-managed context. Stored Responses
+and Anthropic compaction chains keep their previous serialized behavior because
+their boundaries follow persisted response events. Enabling concurrent receipt
+for those chains would require tracking which input events each request sent;
+otherwise an unsent message can fall before the response boundary and disappear
+from the next request.
+
+Ambient plugin discovery is a Senpai policy, implemented in Senpai rather than
+this fork. Senpai continues to load explicit trusted plugins. Laminar remains
+available through the optional extra described above.
 
 ## Maintenance
 

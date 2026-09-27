@@ -12,14 +12,16 @@ MCP references and returns :class:`~openhands.sdk.profiles.AgentProfileDiagnosti
 """
 
 import asyncio
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field, ValidationError
 
-from openhands.agent_server._secrets_exposure import get_cipher, get_config
+from openhands.agent_server._secrets_exposure import (
+    get_cipher,
+    get_config,
+    store_errors,
+)
 from openhands.agent_server.persistence import (
     PersistedSettings,
     get_agent_profile_store,
@@ -45,6 +47,7 @@ from openhands.sdk.profiles import (
     validate_agent_profile,
 )
 from openhands.sdk.profiles.agent_profile_store import PROFILE_NAME_PATTERN
+from openhands.sdk.settings.model import OpenHandsAgentSettings
 from openhands.sdk.utils.cipher import Cipher
 
 
@@ -105,25 +108,6 @@ class RenameAgentProfileRequest(BaseModel):
     )
 
 
-@contextmanager
-def _store_errors() -> Iterator[None]:
-    """Map ``AgentProfileStore`` errors to HTTP responses.
-
-    Mirrors ``profiles_router._store_errors``: ``TimeoutError`` and
-    ``ValueError`` only. ``FileNotFoundError`` / ``FileExistsError`` are handled
-    inline per-endpoint so each gets a clean, resource-specific message.
-    """
-    try:
-        yield
-    except TimeoutError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Agent profile store is busy. Please retry.",
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
 def _llm_has_real_config(llm: LLM) -> bool:
     """True when ``llm`` carries real, user-provided configuration.
 
@@ -173,7 +157,7 @@ def _seed_default_llm_profile(llm: LLM, cipher: Cipher | None) -> str:
     silently clobber it.
     """
     llm_store = get_llm_profile_store()
-    with _store_errors():
+    with store_errors():
         try:
             llm_store.load(SEED_PROFILE_NAME, cipher=cipher)
             return SEED_PROFILE_NAME
@@ -227,7 +211,7 @@ def _seed_default_profile(
     The lock spans empty-check + save + pointer write so concurrent first
     requests seed exactly once and the pointer matches the persisted id.
     """
-    with _store_errors(), store.lock():
+    with store_errors(), store.lock():
         # Double-checked under the lock: a concurrent first request may have
         # already seeded (the outer emptiness check in the list endpoint is
         # unlocked).
@@ -261,7 +245,7 @@ def _seed_default_profile(
 
 def _summary_id_for_name(store: AgentProfileStore, name: str) -> str | None:
     """Return the stable id of the profile stored under ``name``, if present."""
-    with _store_errors():
+    with store_errors():
         for summary in store.list_summaries():
             if summary.get("name") == name:
                 sid = summary.get("id")
@@ -282,14 +266,14 @@ async def list_agent_profiles(request: Request) -> AgentProfileListResponse:
     settings = settings_store.load() or PersistedSettings()
 
     store = get_agent_profile_store()
-    with _store_errors():
+    with store_errors():
         existing = store.list()
 
     if not existing and settings.active_agent_profile_id is None:
         _seed_default_profile(store, request, settings, get_cipher(request))
         settings = settings_store.load() or settings
 
-    with _store_errors():
+    with store_errors():
         summaries = store.list_summaries()
 
     return AgentProfileListResponse(
@@ -308,7 +292,7 @@ async def get_agent_profile(name: ProfileName) -> AgentProfileDetailResponse:
     """
     store = get_agent_profile_store()
     try:
-        with _store_errors():
+        with store_errors():
             profile = store.load(name)
     except FileNotFoundError:
         raise HTTPException(
@@ -361,7 +345,7 @@ async def save_agent_profile(
     # holds the store lock across read + mint + save so two concurrent creates
     # of the same new name can't both mint an id and clobber each other.
     try:
-        with _store_errors():
+        with store_errors():
             save_profile_preserving_identity(
                 store, profile, max_profiles=MAX_AGENT_PROFILES
             )
@@ -387,12 +371,15 @@ async def delete_agent_profile(
     """Delete a stored profile (idempotent).
 
     If the deleted profile was the active one, ``active_agent_profile_id`` is
-    cleared.
+    cleared. If ``agent_settings`` is itself left on a non-OpenHands variant,
+    it is reset to default OpenHands agent settings so stale ACP configuration
+    does not outlive the profile it came from; the server-wide ``mcp_config``
+    is carried over.
     """
     store = get_agent_profile_store()
     deleted_id = _summary_id_for_name(store, name)
 
-    with _store_errors():
+    with store_errors():
         store.delete(name)
 
     if deleted_id is not None:
@@ -401,11 +388,27 @@ async def delete_agent_profile(
         settings = settings_store.load() or PersistedSettings()
         if settings.active_agent_profile_id == deleted_id:
 
-            def clear_pointer(s: PersistedSettings) -> PersistedSettings:
+            def clear_pointer_and_reset_settings(
+                s: PersistedSettings,
+            ) -> PersistedSettings:
                 s.active_agent_profile_id = None
+                # Stale non-OpenHands settings outlive their profile. Reset to
+                # a fresh OpenHands base rather than merging across the variant
+                # boundary (see _apply_agent_settings_diff), except for
+                # ``mcp_config``: it is the server-wide MCP registry every other
+                # profile resolves ``mcp_server_refs`` against, not ACP state.
+                prior_kind = s.agent_settings.agent_kind
+                if prior_kind != "openhands":
+                    s.agent_settings = OpenHandsAgentSettings(
+                        mcp_config=s.agent_settings.mcp_config
+                    )
+                    logger.info(
+                        f"Reset agent_settings to default "
+                        f"(agent_settings was agent_kind='{prior_kind}')"
+                    )
                 return s
 
-            settings_store.update(clear_pointer)
+            settings_store.update(clear_pointer_and_reset_settings)
             logger.info(f"Cleared active pointer for deleted profile '{name}'")
 
     logger.info(f"Deleted agent profile '{name}'")
@@ -428,7 +431,7 @@ async def rename_agent_profile(
     """
     store = get_agent_profile_store()
     try:
-        with _store_errors():
+        with store_errors():
             store.rename(name, body.new_name)
     except FileNotFoundError:
         raise HTTPException(
@@ -462,7 +465,7 @@ async def activate_agent_profile(
     creation-time-only contract). Returns 404 if no stored profile has that id.
     """
     store = get_agent_profile_store()
-    with _store_errors():
+    with store_errors():
         known_ids = {
             str(s["id"]) for s in store.list_summaries() if s.get("id") is not None
         }
@@ -515,7 +518,7 @@ async def materialize_agent_profile(
     """
     store = get_agent_profile_store()
     try:
-        with _store_errors():
+        with store_errors():
             profile = store.load(name)
     except FileNotFoundError:
         raise HTTPException(
@@ -531,13 +534,17 @@ async def materialize_agent_profile(
     mcp_config = settings.agent_settings.mcp_config
 
     # Discover skills off the event loop so the dry-run can report which skills
-    # (catalog minus ``disabled_skills``) resolve. Only OpenHands profiles carry
-    # user/public skills; ACP profiles do not. A discovery failure must not 500
+    # (catalog minus ``disabled_skills``) resolve. Mirrors the launch rule in
+    # ``conversation_service._resolve_agent_from_profile`` so the preview matches
+    # a real launch: an ACP profile is only given a catalog where the CLI cannot
+    # read the user's own configuration (#4019). A discovery failure must not 500
     # the preview: pass ``available_skills=None`` and surface the failure as its
     # own diagnostic below.
     discovery_error: str | None = None
     available_skills = None
-    if profile.agent_kind == "openhands":
+    if profile.agent_kind == "openhands" or (
+        config.acp_skill_sourcing == "openhands_managed"
+    ):
         try:
             available_skills = await asyncio.to_thread(discover_profile_skills)
         except Exception as exc:
