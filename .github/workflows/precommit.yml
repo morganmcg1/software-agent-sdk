@@ -30,9 +30,15 @@ jobs:
               run: uv sync --frozen --group dev
 
             - name: Ensure dynamic attribute baseline only shrinks
-              run: >-
-                  uv run python scripts/check_forbidden_dynamic_attributes.py
-                  --baseline-ref ${{ github.event.pull_request.base.sha || github.event.before }}
+              env:
+                  BASELINE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: |
+                  git cat-file -e "$BASELINE_REF^{commit}"
+                  if git cat-file -e "$BASELINE_REF:scripts/forbidden_dynamic_attributes_baseline.json" 2>/dev/null; then
+                    uv run python scripts/check_forbidden_dynamic_attributes.py --baseline-ref "$BASELINE_REF"
+                  else
+                    echo "Introducing the dynamic attribute baseline; pre-commit validates current source below."
+                  fi
 
             - name: Run pre-commit (all files)
               run: uv run pre-commit run --all-files --show-diff-on-failure
