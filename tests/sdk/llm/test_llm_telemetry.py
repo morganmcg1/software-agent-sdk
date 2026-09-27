@@ -12,7 +12,7 @@ from litellm.types.llms.openai import (
     ResponseAPIUsage,
     ResponsesAPIResponse,
 )
-from litellm.types.utils import ModelResponse, Usage
+from litellm.types.utils import ModelResponse, PromptTokensDetailsWrapper, Usage
 from pydantic import BaseModel, Field, ValidationError
 
 from openhands.sdk.llm.utils.metrics import Metrics
@@ -184,18 +184,18 @@ class TestTelemetryTokenUsage:
 
     def test_record_usage_with_cache_read(self, basic_telemetry):
         """Test token usage recording with cache read tokens."""
-        # Create a mock usage with prompt_tokens_details
-        usage = Usage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
-
-        # Mock the prompt_tokens_details attribute
-        mock_details = MagicMock()
-        mock_details.cached_tokens = 25
-        usage.prompt_tokens_details = mock_details
+        usage = Usage(
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            prompt_tokens_details=PromptTokensDetailsWrapper(cached_tokens=25),
+        )
 
         basic_telemetry._record_usage(_snapshot(usage), "test-id", 4096)
 
         token_usage = basic_telemetry.metrics.token_usages[0]
         assert token_usage.cache_read_tokens == 25
+        assert token_usage.cache_write_tokens == 0
 
     def test_record_usage_with_cache_write(self, basic_telemetry):
         """Test token usage recording with cache write tokens."""

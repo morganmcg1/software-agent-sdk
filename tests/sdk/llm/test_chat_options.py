@@ -26,9 +26,13 @@ class DummyLLM:
     litellm_extra_body: dict[str, Any] | None = None
     # Align with LLM default; only emitted for models that support it
     prompt_cache_retention: str | None = "24h"
+    responses_use_previous_response_id: bool = False
     _call_context: LLMCallContext = field(default_factory=LLMCallContext)
     openrouter_site_url: str = ""
     openrouter_app_name: str = ""
+
+    def uses_anthropic_compaction(self) -> bool:
+        return False
 
     def _openrouter_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -93,7 +97,7 @@ def test_gpt5_uses_reasoning_effort_and_strips_temp_top_p():
     assert "top_p" not in out
 
 
-def test_kimi_k2_thinking_does_not_send_reasoning_effort():
+def test_kimi_k2_thinking_uses_reasoning_effort_and_strips_temperature():
     llm = DummyLLM(
         model="litellm_proxy/moonshot/kimi-k2-thinking",
         temperature=1.0,
@@ -101,8 +105,8 @@ def test_kimi_k2_thinking_does_not_send_reasoning_effort():
     )
     out = select_chat_options(llm, user_kwargs={}, has_tools=True)
 
-    assert "reasoning_effort" not in out
-    assert out.get("temperature") == 1.0
+    assert out.get("reasoning_effort") == "high"
+    assert "temperature" not in out
 
 
 def test_kimi_k3_uses_reasoning_effort_and_strips_temp_top_p():
@@ -273,7 +277,7 @@ def test_litellm_translates_claude_5_reasoning_to_adaptive_thinking(
         reasoning_effort="high",
     )
 
-    assert params["thinking"] == {"type": "adaptive"}
+    assert params["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "budget_tokens" not in params["thinking"]
 
 

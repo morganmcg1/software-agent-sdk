@@ -158,6 +158,9 @@ refresh, and provider context-limit handling.
 Capability lookup separates the provider from the model name before querying
 LiteLLM 1.102.1. This prevents known models such as <code>openai/gpt-4o-mini</code>
 from receiving reasoning options through LiteLLM's unknown-model defaults.
+Token accounting reads serialized cache-write fields because LiteLLM removes
+absent attributes after initialization. Cached streaming responses keep their
+reported token counts without failing on an absent cache-write field.
 
 The summarizing condenser now uses upstream's <code>generate</code> and
 <code>agenerate</code> dispatch with <code>store=False</code>. This replaces the

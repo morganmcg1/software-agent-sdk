@@ -9,7 +9,12 @@ def test_from_llm_chat_message_raises_when_only_non_function_tool_calls():
     # tool_calls with one non-function entry should raise ValueError
     non_function_call = SimpleNamespace(type="non_function")
     # Use a lightweight stub instead of LiteLLMMessage to allow non-function tool_calls
-    m = SimpleNamespace(role="assistant", content="hi", tool_calls=[non_function_call])
+    m = SimpleNamespace(
+        role="assistant",
+        content="hi",
+        tool_calls=[non_function_call],
+        provider_specific_fields=None,
+    )
     with pytest.raises(ValueError, match="none are of type 'function'"):
         Message.from_llm_chat_message(m)  # type: ignore[arg-type]
 
