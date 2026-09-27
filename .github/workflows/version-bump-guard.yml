@@ -8,6 +8,8 @@ on:
 jobs:
     version-bump-guard:
         name: Check package versions
+        # Fork syncs import released versions without running upstream's release bot.
+        if: github.repository == 'OpenHands/software-agent-sdk'
         runs-on: ubuntu-latest
         permissions:
             contents: read
