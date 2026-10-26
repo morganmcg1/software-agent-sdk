@@ -11,18 +11,20 @@ Remove an entry when upstream provides the same behavioral contract.
 ## Baseline
 
 - Upstream baseline:
-  [v1.49.6](https://github.com/OpenHands/software-agent-sdk/tree/v1.49.6)
-  ([fcc102a6](https://github.com/OpenHands/software-agent-sdk/commit/fcc102a697874d54a357e36004e02c95040dbdc0))
+  [v1.58.2](https://github.com/OpenHands/software-agent-sdk/tree/v1.58.2)
+  plus upstream `main` through
+  [d0d9d813](https://github.com/OpenHands/software-agent-sdk/commit/d0d9d8132)
+  (2026-10-26)
 - Fork branch:
   [morganmcg1/software-agent-sdk:main](https://github.com/morganmcg1/software-agent-sdk/tree/main)
 
 Compare the fork against its incorporated upstream baseline:
 
 ~~~bash
-git fetch https://github.com/OpenHands/software-agent-sdk.git tag v1.49.6
-git log --oneline v1.49.6..main
-git diff --stat v1.49.6..main
-git diff v1.49.6..main -- openhands-sdk openhands-tools
+git fetch https://github.com/OpenHands/software-agent-sdk.git main
+git log --oneline FETCH_HEAD..main
+git diff --stat FETCH_HEAD..main
+git diff FETCH_HEAD..main -- openhands-sdk openhands-tools
 ~~~
 
 ## Major feature changes
@@ -117,16 +119,6 @@ value is applied after the inherited model or stored profile is resolved.
 Source commit:
 [afe77a78](https://github.com/morganmcg1/software-agent-sdk/commit/afe77a78).
 
-### UTF-8-safe file editing
-
-The file editor accepts a valid UTF-8 detection sample of up to 1 MiB before
-consulting statistical charset detection, preventing untouched Unicode content
-from being silently transcoded. Samples that are not valid UTF-8 still use
-legacy-encoding detection.
-
-Source commit:
-[06e229d2](https://github.com/morganmcg1/software-agent-sdk/commit/06e229d2).
-
 ### Runtime scopes for model requests
 
 <code>LLM.set_request_scope()</code> binds a runtime context manager around
@@ -148,6 +140,25 @@ remains available through <code>openhands-sdk[laminar]</code>.
 
 Source commit:
 [527771ce](https://github.com/morganmcg1/software-agent-sdk/commit/527771ce).
+
+## Compatibility with upstream 1.58.2
+
+The 2026-10-26 sync keeps upstream's centralized LLM call context
+(`openhands.sdk.llm.call_context`). `LLMCallContext` gained the fork's
+`previous_response_id` field there; `LocalConversation.get_llm_call_context()`
+derives it from the durable event log only when the agent LLM continues stored
+Responses, and child conversations never inherit it. `select_responses_options`
+forwards it when `responses_use_previous_response_id` is enabled.
+
+Upstream now releases the conversation state lock while masking secrets after a
+model response. `Agent._state_lock_scope()` keeps the lock across every such
+release while a provider-managed chain is active, so a user message cannot be
+persisted before the response event that defines the next continuation
+boundary.
+
+Upstream adopted equivalent fixes for valid-UTF-8 detection in the file editor
+(#4784) and for LiteLLM's deleted `cache_creation_tokens` attribute (#5327);
+the fork now carries upstream's versions.
 
 ## Compatibility with upstream 1.49.6
 
