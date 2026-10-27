@@ -34,6 +34,10 @@ LONG_PROMPT_PATTERNS: Final[list[str]] = [
     "context length exceeded",
     "input exceeds the context window",
     "context window exceeds limit",  # Minimax provider
+    # SGLang rejects input plus max_tokens beyond the window with "Requested
+    # token count exceeds the model's maximum context length of N tokens";
+    # vLLM's equivalent says "exceeds model's maximum context length (N)".
+    "maximum context length",
 ]
 
 # These indicate malformed tool-use/tool-result history being sent to the
