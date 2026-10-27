@@ -56,6 +56,37 @@ def test_is_context_window_exceeded_llama_cpp_token_counts():
     assert is_context_window_exceeded(error) is True
 
 
+def test_is_context_window_exceeded_sglang_input_plus_max_tokens():
+    # SGLang's tokenizer manager rejects the request instead of shrinking
+    # max_tokens; LiteLLM surfaces it as a plain BadRequestError.
+    error = BadRequestError(
+        (
+            "Custom_openaiException - Requested token count exceeds the model's "
+            "maximum context length of 262144 tokens. You requested a total of "
+            "263708 tokens: 198172 tokens from the input messages and 65536 "
+            "tokens for the completion. Please reduce the number of tokens in "
+            "the input messages or the completion to fit within the limit."
+        ),
+        MODEL,
+        PROVIDER,
+    )
+
+    assert is_context_window_exceeded(error) is True
+
+
+def test_is_context_window_exceeded_vllm_input_length():
+    error = BadRequestError(
+        (
+            "Hosted_vllmException - Input length (263708) exceeds model's "
+            "maximum context length (262144)."
+        ),
+        MODEL,
+        PROVIDER,
+    )
+
+    assert is_context_window_exceeded(error) is True
+
+
 def test_is_context_window_exceeded_minimax_api_connection_error():
     """Minimax provider wraps context window errors in APIConnectionError."""
     minimax_error = APIConnectionError(
